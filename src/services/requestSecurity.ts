@@ -106,6 +106,8 @@ export function assertTrustedMutationRequest(request: Request) {
   const origin = extractOrigin(request.headers.get('origin'));
   const referer = extractOrigin(request.headers.get('referer'));
 
+  // Accept if EITHER origin OR referer matches an allowed origin. Both are optional per spec,
+  // so we accept whichever the browser sends. Do NOT change this to && (would break CSRF protection).
   if ((origin && allowedOrigins.has(origin)) || (referer && allowedOrigins.has(referer))) {
     return null;
   }

@@ -96,5 +96,13 @@ export const env = {
   get trustedProxyCount() {
     const val = parseInt(clean(process.env.TRUSTED_PROXY_COUNT) || '0', 10);
     return Number.isFinite(val) && val >= 0 ? val : 0;
+  },
+  /**
+   * Optional application-level pepper for password hashing (hex-encoded, 32+ bytes).
+   * When set, password hashes are XORed with this secret so a DB-only breach cannot crack passwords offline.
+   * If empty, passwords are hashed with scrypt + random salt only (still secure, but no defense-in-depth).
+   */
+  get passwordPepper() {
+    return clean(process.env.PASSWORD_PEPPER);
   }
 };

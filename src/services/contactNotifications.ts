@@ -55,6 +55,11 @@ export async function notifyContactSubmission(submission: ContactSubmission) {
       status: response.status,
       statusText: response.statusText
     };
+  } catch (error) {
+    // Only log the error message, never request headers (which contain the Bearer token)
+    const message = error instanceof Error ? error.message : 'Unknown webhook error';
+    console.error(`[contactNotifications] Webhook delivery failed: ${message}`);
+    return { delivered: false };
   } finally {
     clearTimeout(timeout);
   }

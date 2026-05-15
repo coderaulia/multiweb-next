@@ -1,345 +1,457 @@
-# Security Implementation Plan
+# Implementation Plan
 
-Audit date: 2026-05-13  
-Scope: Next.js 16.2 App Router CMS — all API routes, forms, auth, file upload, headers
-
----
-
-## Severity Legend
-
-| Level | Meaning |
-|-------|---------|
-| **Critical** | Exploitable now, fix before next deploy |
-| **High** | Significant abuse vector, fix this sprint |
-| **Medium** | Best-practice gap, fix next sprint |
-| **Low** | Hardening / hygiene, backlog |
+Last updated: 2026-05-15
 
 ---
 
-## Critical
+## Infrastructure Stack
 
-### C-1 — Analytics endpoints completely unprotected
+- **Runtime:** Next.js App Router (self-hosted, standalone output)
+- **Database:** PostgreSQL 16 (local for dev, Docker or bare on VPS for prod)
+- **ORM:** Drizzle ORM (already integrated)
+- **Object Storage:** MinIO (self-hosted, S3-compatible) or Cloudflare R2
+- **Reverse Proxy:** Caddy (on-demand TLS for custom domains)
+- **Cache / Rate Limiting:** Redis (sessions, rate limits, tenant resolution cache)
+- **Background Jobs:** BullMQ (Redis-backed, for scheduled publish, DNS polling, media processing)
+- **Auth:** Custom (scrypt + pepper, cookie sessions in Postgres, Redis fallback)
 
-**Files:** `src/app/api/analytics/page-view/route.ts`, `src/app/api/analytics/event/route.ts`  
-**Issue:** Both POST endpoints have zero authentication, zero CSRF protection, zero rate limiting. Any external actor can flood analytics DB with fake data or mount a DoS.
+---
 
-**Fix:**
-- Add `assertRateLimit(request, 'analytics', 60, 60_000)` (60 req/min per IP) as minimum
-- For page-view: acceptable as a public beacon, but add rate limiting + input length caps
-- For event endpoint: add `assertAdminRequest` or restrict to internal-origin only via CSRF token check
+## Part A: Security Hardening
 
-```ts
-// page-view/route.ts — add at top of POST handler
-const rateLimitFailure = await assertRateLimit(request, 'analytics-pv', 60, 60_000);
-if (rateLimitFailure) return rateLimitFailure;
-```
+Audit date: 2026-05-13
+Scope: All API routes, forms, auth, file upload, headers
 
-**Tasks:**
-- [ ] Add rate limiting to both analytics routes
-- [ ] Add max-length validation on all string fields (visitorId, sessionId, referrer, utm* — cap at 512 chars)
+### Severity Legend
+
+- **Critical** - Exploitable now, fix before next deploy
+- **High** - Significant abuse vector, fix this sprint
+- **Medium** - Best-practice gap, fix next sprint
+- **Low** - Hardening / hygiene, backlog
+
+---
+
+### C-1 - Analytics endpoints unprotected [DONE]
+
+**Files:** `src/app/api/analytics/page-view/route.ts`, `src/app/api/analytics/event/route.ts`
+
+**Issue:** Both POST endpoints had zero rate limiting and no input length caps.
+
+**Completed:**
+- [x] Rate limiting added (60 req/min per IP)
+- [x] Max-length validation on all string fields (visitorId, sessionId, referrer, utm*)
 - [ ] Consider moving `/api/analytics/event` behind admin auth if only admin dashboards call it
 
 ---
 
-### C-2 — X-Forwarded-For spoofing bypasses all IP-based controls
+### C-2 - X-Forwarded-For spoofing [DONE]
 
-**File:** `src/services/requestSecurity.ts:75`  
-**Issue:** `getClientIdentifier()` blindly trusts the `X-Forwarded-For` header. Any attacker can set `X-Forwarded-For: 1.2.3.4` to impersonate a different IP, defeating:
-- Contact form rate limit (10/min)
-- Login lockout (5 attempts / 15-min window)
-- All other `assertRateLimit` calls
+**File:** `src/services/requestSecurity.ts`
 
-```ts
-// CURRENT — spoofable
-const forwardedFor = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
+**Issue:** `getClientIdentifier()` blindly trusted X-Forwarded-For, allowing IP spoofing to bypass all rate limits.
+
+**Completed:**
+- [x] `TRUSTED_PROXY_COUNT` env var added
+- [x] `getClientIdentifier()` rewritten with trusted-proxy-aware extraction
+- [x] Login lockout uses same function
+- [ ] Manual test with `TRUSTED_PROXY_COUNT=0` and `=1`
+
+---
+
+### H-1 - File upload magic bytes validation [DONE]
+
+**File:** `src/services/mediaStorage.ts`
+
+**Issue:** Only checked client-supplied MIME type. SVG allowed (stored XSS risk).
+
+**Completed:**
+- [x] `validateMagicBytes()` implemented
+- [x] SVG uploads blocked entirely
+- [x] Max file size enforced server-side (10 MB)
+- [x] File extension allowlist as secondary guard
+
+---
+
+### H-2 - Analytics input length caps [DONE]
+
+Covered by C-1 fix. All string fields capped before DB insert.
+
+---
+
+### M-1 - Granular permission checks [DONE]
+
+**Files:** `src/app/api/admin/contact-submissions/route.ts`, `[id]/route.ts`
+
+**Completed:**
+- [x] Audited all admin API routes
+- [x] Contact submissions routes now use `assertAdminPermission(request, 'content:edit')`
+
+---
+
+### M-2 - Password pepper [DONE]
+
+**File:** `src/features/cms/adminAuth.ts`
+
+**Completed:**
+- [x] `PASSWORD_PEPPER` env var (hex-encoded, 32+ bytes)
+- [x] New peppered format: `p1:salt:hash`
+- [x] Legacy hashes verified normally, transparently re-hashed on next login
+- [x] Documented in `.env.example`
+
+---
+
+### M-3 - Fallback session safeguards [DONE]
+
+**File:** `src/features/cms/adminAuth.ts`
+
+**Completed:**
+- [x] Warning log when fallback activates
+- [x] Capped at 500 entries with oldest-eviction
+- [ ] Add note to ops runbook
+
+---
+
+### M-4 - Multi-device logout [DONE]
+
+**File:** `src/features/cms/adminAuth.ts`, `src/app/api/admin/auth/logout-all/route.ts`
+
+**Completed:**
+- [x] `logoutAllSessions(userId)` function
+- [x] `POST /api/admin/auth/logout-all` route
+- [ ] "Sign out all devices" button in admin profile UI
+
+---
+
+### L-1 - CSRF origin-check comment [DONE]
+
+- [x] Comment explaining the OR logic intent added to `requestSecurity.ts`
+
+---
+
+### L-2 - X-XSS-Protection header [DONE]
+
+- [x] `X-XSS-Protection: 1; mode=block` added to `middleware.ts`
+
+---
+
+### L-3 - Webhook token scrubbing [DONE]
+
+- [x] Catch block in `contactNotifications.ts` logs only error message, never headers
+
+---
+
+### Remaining security tasks
+
+- [ ] Manual test: TRUSTED_PROXY_COUNT with 0 and 1
+- [ ] Consider analytics/event behind admin auth
+- [ ] "Sign out all devices" button in admin profile UI
+- [ ] Ops runbook note about fallback sessions
+
+---
+
+## Part B: Backend Rework (Remove Supabase)
+
+### Goal
+
+Remove `@supabase/supabase-js` dependency entirely. Replace with:
+- Direct Postgres connection (already using Drizzle)
+- MinIO or R2 for object storage (S3 API, already have R2 client code)
+- Redis for rate limiting, sessions, and cache
+
+### Phase B-1 - Remove Supabase storage client
+
+**Files to modify:**
+- `src/services/mediaStorage.ts` - remove Supabase storage path, keep R2 + local
+- `src/services/env.ts` - remove `supabaseUrl`, `supabaseServiceRoleKey`, `supabaseStorageBucket`
+- `.env.example` - remove Supabase vars, add MinIO vars
+- `package.json` - remove `@supabase/supabase-js`
+- `scripts/migrate-media-to-supabase.ts` - delete or rename to `migrate-media-to-s3.ts`
+- `scripts/purge-supabase.ts` - delete
+- `scripts/reset-supabase.ts` - delete
+
+**New env vars:**
+```
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET=cms-media
+S3_PUBLIC_URL=http://localhost:9000/cms-media
+S3_REGION=us-east-1
 ```
 
-**Fix:**
-- Read `TRUSTED_PROXY_COUNT` from env (default 0 for direct deploys, 1 if behind Vercel/Cloudflare/nginx)
-- Take the Nth-from-right IP in the `X-Forwarded-For` chain based on trusted proxy count
-- Fall back to a stable identifier (e.g., CSRF client ID) when no reliable IP is available
+**Tasks:**
+- [ ] Replace Supabase upload/delete with S3 client (already have `@aws-sdk/client-s3`)
+- [ ] Unify R2 and MinIO paths (both are S3-compatible, single code path)
+- [ ] Remove `@supabase/supabase-js` from package.json
+- [ ] Delete Supabase-specific scripts
+- [ ] Update `.env.example` and `.env.local`
+- [ ] Verify media upload/delete still works with MinIO locally
+- [ ] `npm run check` must pass
+
+---
+
+### Phase B-2 - Add Redis for rate limiting
+
+**New dependency:** `ioredis`
+
+**Files to modify:**
+- `src/services/redis.ts` (new) - Redis client singleton
+- `src/services/requestSecurity.ts` - replace DB-backed rate limiting with Redis
+- `src/services/env.ts` - add `REDIS_URL`
+- `.env.example` - add `REDIS_URL`
+
+**New env vars:**
+```
+REDIS_URL=redis://localhost:6379
+```
+
+**Tasks:**
+- [ ] Create `src/services/redis.ts` with lazy connection
+- [ ] Rewrite `assertRateLimit` to use Redis INCR + EXPIRE (atomic, no table needed)
+- [ ] Keep in-memory fallback if Redis is unavailable
+- [ ] Remove `request_rate_limits` table from schema (or keep as dead code for now)
+- [ ] `npm run check` must pass
+
+---
+
+### Phase B-3 - Redis session fallback
+
+**Files to modify:**
+- `src/features/cms/adminAuth.ts` - replace in-memory fallback with Redis
+- `src/services/redis.ts` - add session helpers
+
+**Tasks:**
+- [ ] When DB is unavailable, store sessions in Redis instead of in-memory Map
+- [ ] Sessions in Redis get TTL matching SESSION_TTL_MS
+- [ ] Remove `global.__cmsAdminFallbackSessions` hack
+- [ ] `npm run check` must pass
+
+---
+
+### Phase B-4 - Clean up database connection
+
+**Files to modify:**
+- `src/db/client.ts` - simplify, remove Supabase connection string handling if any
+- `drizzle.config.ts` - verify works with plain Postgres URL
+
+**Tasks:**
+- [ ] Verify connection pooling works with `postgres://` URL directly
+- [ ] Document Docker Compose setup for local Postgres + Redis + MinIO
+- [ ] `npm run check` must pass
+
+---
+
+## Part C: Multi-Tenant Conversion
+
+### Overview
+
+Convert single-tenant CMS to multi-tenant on a single deployment:
+- `domain.com/client-slug` (path-based)
+- `clientdomain.com` (custom domain) - both serve the same tenant
+
+Big clients continue using the `bootstrap:client` fork workflow (not removed).
+
+### Constraints
+
+- Postgres mode only for multi-tenant
+- Type-system must make it impossible to forget tenant scoping on queries
+- Zero data loss for existing single tenant during migration
+- Reserved slugs: `admin`, `api`, `_next`, `static`, `login`, `signup`, `dashboard`, `app`, `www`, `mail`, `assets`, `media`, `cdn`, `docs`
+- Self-hosted with Caddy reverse proxy for on-demand TLS
+
+---
+
+### Phase C-1 - Schema + Migration
+
+- Add `tenants` table:
+  - `id` (uuid pk)
+  - `slug` (unique, lowercase kebab)
+  - `custom_domain` (unique nullable)
+  - `name` (text, not null)
+  - `theme_config` (jsonb, default `{}`)
+  - `status` (`active` | `suspended`, default `active`)
+  - `created_at` (timestamptz)
+  - `updated_at` (timestamptz)
+- Add nullable `tenant_id` FK to: `pages`, `blog_posts`, `portfolio_projects`, `media_assets`, `contact_submissions`, `admin_audit_logs`, `admin_users`, `admin_sessions`, `site_settings`, `categories`, `portfolio_tags`, `comments`, `cms_content_revisions`, `analytics_events`, `notifications`, `redirects`, `page_404_log`, `user_dashboard_preferences`
+- Backfill all existing rows with a single `default` tenant (slug: `default`)
+- Alter `tenant_id` columns to NOT NULL
+- Drop existing unique constraints on `slug` columns, add composite unique `(tenant_id, slug)`
+- Add index on `tenants.custom_domain`
+- Generate migration with `npm run db:generate`, verify SQL before applying
+
+**Unscoped tables (no tenant_id):**
+- `request_rate_limits` - infrastructure, cross-tenant (moving to Redis anyway)
+- `admin_login_lockouts` - keyed by IP/identifier, cross-tenant
+- `post_categories` - join table, parent rows are already scoped
+- `portfolio_project_tags` - join table, parent rows are already scoped
+
+---
+
+### Phase C-2a - Tenant Context Helper
+
+Create `src/features/cms/tenantContext.ts`:
+- `resolveTenantByHost(host: string)` - check `custom_domain` first, fall back to root
+- `resolveTenantBySlug(slug: string)`
+- Redis cache with 60s TTL (fall back to in-memory Map if Redis unavailable)
+- `getTenantFromRequest(req)` - reads `x-tenant-id` header (set by middleware)
+- Unit tests for cache TTL and lookup paths
+
+---
+
+### Phase C-2b - Middleware + `[tenant]` Segment
+
+- Update `middleware.ts`:
+  - Skip `/admin`, `/api`, `/_next`, static
+  - Match host against custom domains. If hit, rewrite path to `/{tenant.slug}/...` and set `x-tenant-id` header
+  - If host is root domain, parse first path segment as slug, validate against reserved list
+  - 404 if no tenant resolved
+- Move public routes under `app/(public)/[tenant]/`
+- Keep `app/admin/` and `app/api/` at top level
+- Verify path-based and custom-domain routing both serve same tenant content
+
+---
+
+### Phase C-3 - Store Refactor (Factory Pattern)
+
+Highest-risk phase.
+
+- Refactor `contentStore.ts`, `publicApi.ts`, `dbStore.ts` with tenant-scoped factory:
 
 ```ts
-// env.ts — add
-trustedProxyCount: z.coerce.number().default(0).parse(process.env.TRUSTED_PROXY_COUNT),
-
-// requestSecurity.ts — replace getClientIdentifier
-function getClientIp(request: Request): string {
-  const count = env.trustedProxyCount;
-  if (count === 0) {
-    // Direct connection — ignore X-Forwarded-For entirely
-    return request.headers.get('x-real-ip') || 'unknown';
-  }
-  const chain = (request.headers.get('x-forwarded-for') || '').split(',').map(s => s.trim());
-  // Rightmost `count` entries are added by trusted proxies
-  const ip = chain[chain.length - count];
-  return ip || 'unknown';
+export function getStore(tenantId: string) {
+  return {
+    getPublishedPage: (slug) => /* scoped query */,
+    listBlogPosts: () => /* scoped */,
+    // ...
+  };
 }
 ```
 
-**Tasks:**
-- [ ] Add `TRUSTED_PROXY_COUNT` env var (document in `.env.example`)
-- [ ] Rewrite `getClientIdentifier()` to use trusted-proxy-aware IP extraction
-- [ ] Update login lockout in `adminAuth.ts` to use same function
-- [ ] Test with `TRUSTED_PROXY_COUNT=0` (direct) and `=1` (behind proxy)
+- Every Drizzle query must include `.where(eq(table.tenantId, tenantId))`
+- Update all callers (admin API routes, public pages)
+- Keep file store functional for forked single-tenant path (gate on `DATABASE_URL`)
+- Update existing tests, add cross-tenant isolation tests
+- `npm run check` must pass
 
 ---
 
-## High
+### Phase C-4 - Admin Scoping
 
-### H-1 — File upload validates MIME type only (client-supplied)
+- Add `tenant_id` to session cookie payload
+- New role `super_admin` (platform owner) - can list and switch tenants
+- Tenant admins only see their own data
+- `assertAdminPermission` verifies `session.tenantId === resource.tenantId` (except super_admin)
+- Tenant switcher in admin UI (super_admin only)
+- First-run bootstrap: create `default` tenant + super_admin from env vars
 
-**File:** `src/services/mediaStorage.ts:62-66`  
-**Issue:** `isAllowedFile()` checks `file.type` which is set by the client. Attacker can upload `malware.html` with `Content-Type: image/jpeg`. Also, SVG is allowed — SVGs can contain `<script>` tags (stored XSS if served directly).
+---
 
-```ts
-// CURRENT — trusts client MIME
-return ALLOWED_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+### Phase C-5 - Cache Scoping
+
+- Tags become tenant-scoped: `tenant:{id}:pages`, `tenant:{id}:blog`, etc.
+- `revalidatePublicCmsCache(tenantId, type)` - no more global busts
+- Use Redis pub/sub for cache invalidation across instances (future-proof)
+
+---
+
+### Phase C-6 - Per-Tenant Theming
+
+- Move brand/nav/SEO defaults from `site-profile.ts` into `tenants.theme_config` (jsonb)
+- `site-profile.ts` becomes schema/defaults; runtime values from active tenant
+- Inject brand colors as CSS variables in tenant layout `<head>`
+- Theme fields:
+  - Brand name, logo url, favicon url
+  - Color tokens (override vanailaNavy, electricBlue, royalPurple, vibrantCyan, deepSlate)
+  - Nav items, footer links
+  - Social handles
+  - SEO defaults (og image, twitter handle)
+
+---
+
+### Phase C-7 - Tenant-Aware Infra Files
+
+- `app/sitemap.ts` - read host, return only that tenant's URLs
+- `app/robots.ts` - tenant-specific
+- `features/cms/seo.ts` - accept `tenant.baseUrl` (from custom_domain or rootDomain/slug)
+
+---
+
+### Phase C-8 - Custom Domains (Caddy On-Demand TLS)
+
+- Add `app/api/internal/verify-domain/route.ts`: returns 200 if host matches a tenant's `custom_domain`, 404 otherwise (Caddy's `on_demand_tls.ask` endpoint)
+- Provide `Caddyfile` example in `docs/multi-tenant-deployment.md`
+- Admin UI: "Add custom domain" - store domain, show CNAME instructions, background-poll DNS via BullMQ, mark verified, invalidate host cache
+
+---
+
+### Phase C-9 - Tenant Create Script
+
+- New script: `npm run tenant:create -- --slug acme --name "Acme Co" --admin-email x@y.com`
+- Inserts tenant row, seeds default pages/content, creates first tenant admin
+- Keep existing `bootstrap:client` for fork workflow (untouched)
+
+---
+
+## Part D: Deployment
+
+### Docker Compose (local dev + prod)
+
+Services:
+- `app` - Next.js standalone (port 3000)
+- `postgres` - PostgreSQL 16 (port 5432)
+- `redis` - Redis 7 (port 6379)
+- `minio` - MinIO (ports 9000, 9001)
+- `caddy` - Caddy reverse proxy (ports 80, 443)
+
+### Production VPS layout
+
+```
+/opt/multiweb/
+  docker-compose.yml
+  Caddyfile
+  .env
+  data/
+    postgres/
+    redis/
+    minio/
 ```
 
-**Fix:**
-- Read first 12 bytes of file buffer and check magic bytes
-- Block SVG uploads or run them through a sanitizer (DOMPurify server-side or strip `<script>`)
-- Add max file size enforcement (already partially present — verify it's enforced server-side)
+### Tasks
 
-```ts
-const MAGIC_BYTES: Record<string, Uint8Array[]> = {
-  'image/jpeg': [new Uint8Array([0xFF, 0xD8, 0xFF])],
-  'image/png':  [new Uint8Array([0x89, 0x50, 0x4E, 0x47])],
-  'image/gif':  [new Uint8Array([0x47, 0x49, 0x46])],
-  'image/webp': [new Uint8Array([0x52, 0x49, 0x46, 0x46])],
-  'video/mp4':  [new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])],
-};
-
-async function validateFileMagicBytes(file: File, claimedMime: string): Promise<boolean> {
-  const sigs = MAGIC_BYTES[claimedMime];
-  if (!sigs) return false; // unknown MIME not in allowlist
-  const buf = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-  return sigs.some(sig => sig.every((b, i) => buf[i] === b));
-}
-```
-
-**Tasks:**
-- [ ] Implement `validateFileMagicBytes()` in `mediaStorage.ts`
-- [ ] Block SVG uploads entirely (remove `image/svg+xml` from allowed MIME if present) or add sanitization step
-- [ ] Verify max file size is checked server-side (not just client-side)
-- [ ] Add file extension allowlist check as secondary guard
-
----
-
-### H-2 — Analytics string fields have no length limits
-
-**Files:** `src/app/api/analytics/page-view/route.ts`, `src/app/api/analytics/event/route.ts`  
-**Issue:** `visitorId`, `sessionId`, `referrer`, `utmSource`, `utmMedium`, `utmCampaign` are trimmed but not length-capped. Attacker can send megabyte-sized strings → DB bloat or query slowdowns.
-
-**Fix:** Cap all analytics string inputs at reasonable lengths before touching the DB:
-
-```ts
-const MAX = { id: 128, path: 512, ref: 1024, utm: 256 };
-
-function truncate(s: unknown, max: number): string {
-  return String(s ?? '').trim().slice(0, max);
-}
-
-const visitorId  = truncate(body?.visitorId,  MAX.id);
-const sessionId  = truncate(body?.sessionId,  MAX.id);
-const referrer   = truncate(body?.referrer,   MAX.ref);
-const utmSource  = truncate(body?.utmSource,  MAX.utm);
-```
-
-**Tasks:**
-- [ ] Add `truncate()` helper to both analytics routes
-- [ ] Apply length caps to all string fields before DB insert
-
----
-
-## Medium
-
-### M-1 — Missing granular permission check on contact submissions
-
-**File:** `src/app/api/admin/contact-submissions/route.ts:6-14`  
-**Issue:** Uses `assertAdminRequest()` (auth only) instead of `assertAdminPermission(session, 'content:read')`. Any authenticated user regardless of role can read all contact submissions.
-
-**Fix:**
-
-```ts
-// Replace
-const auth = await assertAdminRequest(request);
-if (auth instanceof NextResponse) return auth;
-
-// With
-const session = await getAdminSession(request);
-if (!session) return unauthorized();
-const permError = assertAdminPermission(session, 'content:read');
-if (permError) return permError;
-```
-
-**Tasks:**
-- [ ] Audit all admin API routes — list which use `assertAdminRequest` vs `assertAdminPermission`
-- [ ] Replace `assertAdminRequest` with role-gated `assertAdminPermission` calls where appropriate
-- [ ] Add `content:read` permission to contact-submissions GET handler
-
----
-
-### M-2 — Password hashing has no application-level pepper
-
-**File:** `src/features/cms/adminAuth.ts:153-167`  
-**Issue:** `hashAdminPassword()` uses scrypt with a random salt only. If the DB is compromised, attackers get unsalted hashes and can crack weak passwords offline with no additional secrets.
-
-**Fix:** XOR or HMAC the derived key with a server-side pepper from env:
-
-```ts
-// env.ts — add
-passwordPepper: z.string().min(32).parse(process.env.PASSWORD_PEPPER),
-
-// adminAuth.ts
-const pepper = Buffer.from(env.passwordPepper, 'hex');
-const derived = (await scrypt(password, salt, 64)) as Buffer;
-const peppered = Buffer.from(derived.map((b, i) => b ^ pepper[i % pepper.length]));
-return `${salt}:${peppered.toString('hex')}`;
-```
-
-**Note:** Changing this requires a one-time migration: force all users to reset passwords, or verify old format and re-hash on next login.
-
-**Tasks:**
-- [ ] Add `PASSWORD_PEPPER` env var (32+ byte hex, document in `.env.example`)
-- [ ] Update `hashAdminPassword()` and `verifyAdminPassword()` to apply pepper
-- [ ] Decide migration strategy: force password reset vs transparent re-hash on login
-
----
-
-### M-3 — Fallback in-memory session store is undocumented and volatile
-
-**File:** `src/features/cms/adminAuth.ts:252-272`  
-**Issue:** When DB is unavailable, sessions fall back to `global.__cmsAdminFallbackSessions` (plaintext in-memory Map). Sessions are lost on restart; can't be revoked; not shared across instances.
-
-**Fix:**
-- Add explicit warning log when fallback store activates
-- Cap fallback store size (prevent unbounded growth)
-- Document in runbook that DB downtime means sessions don't persist
-
-```ts
-if (!dbAvailable) {
-  console.error('[auth] WARN: DB unavailable — using volatile in-memory session store. Sessions will not persist across restarts.');
-  // cap at 500 sessions to prevent memory growth
-  if (getFallbackSessionStore().size > 500) {
-    const oldest = getFallbackSessionStore().keys().next().value;
-    if (oldest) getFallbackSessionStore().delete(oldest);
-  }
-}
-```
-
-**Tasks:**
-- [ ] Add warning log when fallback activates
-- [ ] Cap fallback store at N entries (evict oldest)
-- [ ] Add note to `CLAUDE.md` / ops runbook
-
----
-
-### M-4 — No multi-device session invalidation on logout
-
-**File:** `src/features/cms/adminAuth.ts:274-290`  
-**Issue:** Logout deletes only the current session token. Other active sessions for the same user remain valid. No "logout all devices" capability.
-
-**Fix:** Add `logoutAllSessions(userId)` that deletes all tokens for the user from `admin_sessions` table.
-
-```ts
-export async function logoutAllSessions(userId: string) {
-  await db.delete(adminSessionsTable).where(eq(adminSessionsTable.userId, userId));
-}
-```
-
-Expose via `POST /api/admin/auth/logout-all`.
-
-**Tasks:**
-- [ ] Add `logoutAllSessions()` to `adminAuth.ts`
-- [ ] Add `POST /api/admin/auth/logout-all` route (requires auth)
-- [ ] Add "Sign out all devices" button in admin profile settings
-
----
-
-## Low
-
-### L-1 — CSRF origin-check logic undocumented
-
-**File:** `src/services/requestSecurity.ts:91-105`  
-**Issue:** The OR logic `(origin matches) || (referer matches)` is correct but non-obvious. A developer could misread it and "simplify" it to `&&`, breaking CSRF protection.
-
-**Tasks:**
-- [ ] Add a single-line comment explaining the OR logic intent
-
----
-
-### L-2 — X-XSS-Protection header not set
-
-**File:** `middleware.ts` (security headers block)  
-**Issue:** Modern CSP handles XSS but legacy browsers benefit from `X-XSS-Protection: 1; mode=block`.
-
-**Tasks:**
-- [ ] Add `X-XSS-Protection: 1; mode=block` to security headers in `middleware.ts`
-
----
-
-### L-3 — Webhook token logged on failure
-
-**File:** `src/services/contactNotifications.ts:34-36`  
-**Issue:** If the webhook request fails and the error is logged with request details, the Bearer token may appear in logs.
-
-**Tasks:**
-- [ ] Ensure catch block logs only the error message, not request headers
-- [ ] Scrub Authorization header from any error objects before logging
-
----
-
-## Forms Inventory
-
-All frontend forms are properly wired. No orphaned forms detected.
-
-| Form | Endpoint | Auth | CSRF | Rate-limited |
-|------|----------|------|------|-------------|
-| ContactBriefForm | `POST /api/contact` | None (public) | ✅ | ✅ 10/min |
-| ContactPageView | `POST /api/contact` | None (public) | ✅ | ✅ 10/min |
-| AdminLoginForm | `POST /api/admin/auth` | None (public) | ✅ | ✅ lockout |
-| BlogEditorForm | `PUT /api/admin/blog/[id]` | ✅ | ✅ | — |
-| PageEditorForm | `PUT /api/admin/pages/[id]` | ✅ | ✅ | — |
-| PortfolioEditorForm | `PUT /api/admin/portfolio/[id]` | ✅ | ✅ | — |
-| OnboardingSteps | `POST /api/admin/settings` | ✅ | ✅ | — |
-
-**Note:** Contact form rate limiting is bypassable via X-Forwarded-For spoofing — fix tracked in C-2.
-
----
-
-## API Endpoints — Auth Coverage
-
-| Route | Method | Auth | CSRF | Notes |
-|-------|--------|------|------|-------|
-| `/api/contact` | POST | None | ✅ | Public — correct |
-| `/api/analytics/page-view` | POST | ❌ | ❌ | **Fix C-1** |
-| `/api/analytics/event` | POST | ❌ | ❌ | **Fix C-1** |
-| `/api/admin/auth` | POST | None | ✅ | Login — correct |
-| `/api/admin/auth` | DELETE | ✅ | ✅ | Logout |
-| `/api/admin/blog/*` | ALL | ✅ | ✅ | — |
-| `/api/admin/pages/*` | ALL | ✅ | ✅ | — |
-| `/api/admin/portfolio/*` | ALL | ✅ | ✅ | — |
-| `/api/admin/contact-submissions` | GET | ✅ | — | Missing role check — **Fix M-1** |
-| `/api/admin/settings` | ALL | ✅ | ✅ | — |
-| `/api/admin/media/*` | ALL | ✅ | ✅ | File type — **Fix H-1** |
-| `/api/admin/team/*` | ALL | ✅ | ✅ | — |
+- [ ] Create `docker-compose.yml` for local dev (Postgres + Redis + MinIO)
+- [ ] Create `docker-compose.prod.yml` (adds Caddy, uses standalone Next.js image)
+- [ ] Create `Dockerfile` for Next.js standalone build
+- [ ] Create `Caddyfile` with on-demand TLS config
+- [ ] Document deployment in `docs/multi-tenant-deployment.md`
 
 ---
 
 ## Execution Order
 
-| Priority | Item | Effort | Impact |
-|----------|------|--------|--------|
-| 1 | C-2 — IP spoofing fix | M | Closes rate-limit bypass on all endpoints |
-| 2 | C-1 — Analytics rate limiting + auth | S | Closes open abuse vector |
-| 3 | H-1 — File upload magic bytes | M | Prevents malicious upload bypass |
-| 4 | H-2 — Analytics input length caps | S | Prevents DB bloat |
-| 5 | M-1 — Granular permissions audit | S | Enforces least-privilege |
-| 6 | M-2 — Password pepper | M | DB breach mitigation |
-| 7 | M-3 — Fallback session safeguards | S | Operational resilience |
-| 8 | M-4 — Multi-device logout | M | Session hygiene |
-| 9 | L-1/L-2/L-3 — Low items | S | Hardening |
+| Phase | Description | Risk | Dependencies |
+|-------|-------------|------|--------------|
+| B-1 | Remove Supabase, unify S3 storage | Low | None |
+| B-2 | Redis rate limiting | Low | None |
+| B-3 | Redis session fallback | Low | B-2 |
+| B-4 | Clean up DB connection | Low | B-1 |
+| C-1 | Schema + migration | Medium | B-4 |
+| C-2a | Tenant context helper | Low | C-1 |
+| C-2b | Middleware + routing | High | C-2a |
+| C-3 | Store refactor (factory) | High | C-2a |
+| C-4 | Admin scoping | Medium | C-3 |
+| C-5 | Cache scoping | Low | C-3, B-2 |
+| C-6 | Per-tenant theming | Medium | C-4 |
+| C-7 | Tenant-aware infra files | Low | C-3 |
+| C-8 | Custom domains (Caddy) | Medium | C-2b |
+| C-9 | Tenant create script | Low | C-4 |
+| D | Docker + deployment | Low | All above |
 
-Effort: S = < 2h, M = 2–4h
+---
+
+## Working Agreement
+
+- Run `npm run check` (lint + typecheck + test) after every phase. Do not move forward if it fails.
+- For schema changes, show generated migration SQL before running `db:migrate`.
+- If ambiguity is found, ask before guessing. Do not invent fields or routes not approved.
+- No em dashes in code comments or docs.
+- For each phase, end with: (a) summary of what changed, (b) files touched, (c) what to test manually, (d) wait for "next" from user.

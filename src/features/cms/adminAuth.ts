@@ -153,10 +153,36 @@ function hashSessionToken(token: string) {
 export async function hashAdminPassword(password: string) {
   const salt = randomBytes(16).toString('hex');
   const derived = (await scrypt(password, salt, 64)) as Buffer;
+  const pepper = env.passwordPepper;
+
+  if (pepper && pepper.length >= 64) {
+    // Apply pepper via XOR for defense-in-depth against DB-only breaches
+    const pepperBuf = Buffer.from(pepper, 'hex');
+    const peppered = Buffer.from(derived.map((b, i) => b ^ pepperBuf[i % pepperBuf.length]));
+    return `p1:${salt}:${peppered.toString('hex')}`;
+  }
+
   return `${salt}:${derived.toString('hex')}`;
 }
 
 async function verifyPassword(password: string, passwordHash: string) {
+  const pepper = env.passwordPepper;
+
+  // Peppered format: "p1:salt:hash"
+  if (passwordHash.startsWith('p1:')) {
+    const parts = passwordHash.slice(3).split(':');
+    const [salt, storedHash] = parts;
+    if (!salt || !storedHash || !pepper || pepper.length < 64) return false;
+
+    const derived = (await scrypt(password, salt, 64)) as Buffer;
+    const pepperBuf = Buffer.from(pepper, 'hex');
+    const peppered = Buffer.from(derived.map((b, i) => b ^ pepperBuf[i % pepperBuf.length]));
+    const expected = Buffer.from(storedHash, 'hex');
+    if (peppered.length !== expected.length) return false;
+    return timingSafeEqual(peppered, expected);
+  }
+
+  // Legacy format: "salt:hash" (no pepper)
   const [salt, storedHash] = passwordHash.split(':');
   if (!salt || !storedHash) return false;
 
@@ -252,7 +278,17 @@ async function createSession(userId: string) {
 function createFallbackSession(user: AdminSessionUser) {
   const rawToken = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-  getFallbackSessionStore().set(rawToken, { user, expiresAt });
+  const store = getFallbackSessionStore();
+
+  console.error('[auth] WARN: DB unavailable. Using volatile in-memory session store. Sessions will not persist across restarts.');
+
+  // Cap at 500 sessions to prevent unbounded memory growth; evict oldest entry
+  if (store.size >= 500) {
+    const oldest = store.keys().next().value;
+    if (oldest) store.delete(oldest);
+  }
+
+  store.set(rawToken, { user, expiresAt });
   return { rawToken, expiresAt };
 }
 
@@ -651,6 +687,15 @@ export async function loginAdminUser(email: string, password: string): Promise<A
       return null;
     }
 
+    // Transparent re-hash: upgrade legacy (non-peppered) hashes when pepper is configured
+    if (env.passwordPepper && env.passwordPepper.length >= 64 && !user.passwordHash.startsWith('p1:')) {
+      const newHash = await hashAdminPassword(normalizedPassword);
+      await getDb()
+        .update(adminUsersTable)
+        .set({ passwordHash: newHash, updatedAt: nowIso() })
+        .where(eq(adminUsersTable.id, user.id));
+    }
+
     const session = await createSession(user.id);
     const loginAt = nowIso();
     await getDb()
@@ -699,6 +744,28 @@ export async function logoutAdminUser(request: Request) {
   const rawToken = readSessionTokenFromRequest(request);
   if (rawToken) {
     await deleteSessionByRawToken(rawToken);
+  }
+}
+
+export async function logoutAllSessions(userId: string) {
+  // Clear any in-memory fallback sessions for this user
+  const store = getFallbackSessionStore();
+  for (const [token, session] of store.entries()) {
+    if (session.user.id === userId) {
+      store.delete(token);
+    }
+  }
+
+  if (!env.databaseUrl) return;
+
+  try {
+    await getDb()
+      .delete(adminSessionsTable)
+      .where(eq(adminSessionsTable.userId, userId));
+  } catch (error) {
+    if (!isMissingAdminSchemaError(error)) {
+      throw error;
+    }
   }
 }
 
