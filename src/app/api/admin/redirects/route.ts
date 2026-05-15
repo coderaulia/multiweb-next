@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 
 import { getDb } from '@/db/client';
 import { redirectsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { assertAdminPermission } from '@/features/cms/adminAuth';
 import { nowIso } from '@/features/cms/storeShared';
 import { randomUUID } from 'node:crypto';
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
   const id = randomUUID();
   await db.insert(redirectsTable).values({
     id,
+    tenantId: DEFAULT_TENANT_ID,
     fromPath,
     toPath,
     type,

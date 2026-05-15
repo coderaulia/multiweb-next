@@ -7,6 +7,7 @@ import {
   portfolioTagsTable,
   postCategoriesTable
 } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 import { normalizeCategoryRecord } from './collectionShared';
 import { nowIso, normalizeSlug } from './storeShared';
@@ -135,7 +136,7 @@ async function ensureCategoriesForPosts(posts: PostTagShape[]) {
     );
 
   if (missing.length > 0) {
-    await getDb().insert(categoriesTable).values(missing).onConflictDoNothing();
+    await getDb().insert(categoriesTable).values(missing.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing();
     for (const category of missing) {
       categoriesBySlug.set(category.slug, category);
     }
@@ -245,6 +246,7 @@ async function ensurePortfolioTagsForProjects(projects: PortfolioTagShape[]) {
     .filter((entry) => !tagsBySlug.has(entry.slug))
     .map((entry) => ({
       id: `portfolio-tag-${entry.slug}`,
+      tenantId: DEFAULT_TENANT_ID,
       name: entry.name,
       slug: entry.slug,
       createdAt: timestamp,

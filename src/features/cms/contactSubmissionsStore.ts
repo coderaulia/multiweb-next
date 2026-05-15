@@ -2,6 +2,7 @@ import { desc, eq } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { contactSubmissionsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { env } from '@/services/env';
 
 import { nowIso } from './storeShared';
@@ -48,7 +49,10 @@ export async function createContactSubmission(
     ...input
   };
 
-  await getDb().insert(contactSubmissionsTable).values(submission);
+  await getDb().insert(contactSubmissionsTable).values({
+    ...submission,
+    tenantId: DEFAULT_TENANT_ID
+  });
   return submission;
 }
 

@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { blogPostsTable, categoriesTable, mediaAssetsTable, postCategoriesTable, siteSettingsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 import {
   clearDefaultCategorySetting,
@@ -198,7 +199,7 @@ async function syncDbCategories() {
   const existingBySlug = new Map(existing.map((category) => [category.slug, category]));
   const missing = categories.filter((category) => !existingBySlug.has(category.slug));
   if (missing.length > 0) {
-    await getDb().insert(categoriesTable).values(missing).onConflictDoNothing();
+    await getDb().insert(categoriesTable).values(missing.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing();
   }
 
   return sortCategories(categories);
@@ -234,7 +235,7 @@ export async function createCategory(payload: Category): Promise<Category> {
   const categories = await syncDbCategories();
   const slug = uniqueCategorySlug(categories, payload.name, payload.slug);
   const next = normalizeCategoryRecord({ ...payload, slug });
-  await getDb().insert(categoriesTable).values(next);
+  await getDb().insert(categoriesTable).values({ ...next, tenantId: DEFAULT_TENANT_ID });
   return next;
 }
 
@@ -293,8 +294,8 @@ async function ensureMediaBootstrap() {
   }
 
   await withLegacyMediaFallback(
-    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets).onConflictDoNothing(),
-    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets.map(toLegacyMediaRow)).onConflictDoNothing()
+    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
+    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets.map((a) => ({ ...toLegacyMediaRow(a), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
   );
 }
 
@@ -327,8 +328,8 @@ export async function createMediaAsset(payload: MediaAsset): Promise<MediaAsset>
   await ensureMediaBootstrap();
   const next = normalizeMediaAssetRecord(payload);
   await withLegacyMediaFallback(
-    () => getDb().insert(mediaAssetsTable).values(next),
-    () => getDb().insert(mediaAssetsTable).values(toLegacyMediaRow(next))
+    () => getDb().insert(mediaAssetsTable).values({ ...next, tenantId: DEFAULT_TENANT_ID }),
+    () => getDb().insert(mediaAssetsTable).values({ ...toLegacyMediaRow(next), tenantId: DEFAULT_TENANT_ID })
   );
   return next;
 }

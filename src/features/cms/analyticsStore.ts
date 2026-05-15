@@ -4,6 +4,7 @@ import { desc, gte } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { analyticsEventsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { env } from '@/services/env';
 
 import { nowIso } from './storeShared';
@@ -111,6 +112,7 @@ async function insertAnalyticsRow(input: {
 }) {
   await getDb().insert(analyticsEventsTable).values({
     id: randomUUID(),
+    tenantId: DEFAULT_TENANT_ID,
     path: normalizeUrlPath(input.path),
     entityType: input.entityType || 'page',
     entityId: input.entityId?.trim() || null,

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 
 import { getDb } from '@/db/client';
 import { userDashboardPreferencesTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { assertAdminPermission } from '@/features/cms/adminAuth';
 import { nowIso } from '@/features/cms/storeShared';
 import { randomUUID } from 'node:crypto';
@@ -66,6 +67,7 @@ export async function PUT(request: Request) {
   if (existing.length === 0) {
     await db.insert(userDashboardPreferencesTable).values({
       id: randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
       userId: adminSession.user.id,
       widgetOrder,
       hiddenWidgets,

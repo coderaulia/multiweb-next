@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import { getDb } from '@/db/client';
 import { notificationsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { nowIso } from '@/features/cms/storeShared';
 
 export type NotificationType = 'schedule_publish' | 'schedule_unpublish' | 'approval_request' | 'mention' | 'system';
@@ -33,6 +34,7 @@ export async function createNotification(params: {
 
   await db.insert(notificationsTable).values({
     id,
+    tenantId: DEFAULT_TENANT_ID,
     userId: params.userId,
     type: params.type,
     title: params.title,

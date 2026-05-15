@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { adminSessionsTable, adminUsersTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { env } from '@/services/env';
 
 import { hashAdminPassword } from './adminAuth';
@@ -129,6 +130,7 @@ export async function createAdminTeamMember(input: {
   const timestamp = nowIso();
   const nextUser: AdminUserRow = {
     id: randomUUID(),
+    tenantId: DEFAULT_TENANT_ID,
     email,
     displayName,
     passwordHash: await hashAdminPassword(password),

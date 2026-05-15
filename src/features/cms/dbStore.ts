@@ -12,6 +12,7 @@ import {
   postCategoriesTable,
   siteSettingsTable
 } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 import { defaultContent } from './defaultContent';
 import {
@@ -560,6 +561,7 @@ async function ensureDbBootstrap() {
         .insert(siteSettingsTable)
         .values({
           id: 'default',
+          tenantId: DEFAULT_TENANT_ID,
           payload: defaultContent.settings,
           updatedAt: nowIso()
         })
@@ -569,16 +571,16 @@ async function ensureDbBootstrap() {
     const existingPages = await db.select({ id: pagesTable.id }).from(pagesTable).limit(1);
     if (existingPages.length === 0) {
       await withLegacyScheduleFallback(
-        () => db.insert(pagesTable).values(Object.values(defaultContent.pages).map(pageToRow)).onConflictDoNothing(),
-        () => db.insert(pagesTable).values(Object.values(defaultContent.pages).map(pageToLegacyRow)).onConflictDoNothing()
+        () => db.insert(pagesTable).values(Object.values(defaultContent.pages).map((p) => ({ ...pageToRow(p), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
+        () => db.insert(pagesTable).values(Object.values(defaultContent.pages).map((p) => ({ ...pageToLegacyRow(p), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
       );
     }
 
     const existingPosts = await db.select({ id: blogPostsTable.id }).from(blogPostsTable).limit(1);
     if (existingPosts.length === 0) {
       await withLegacyScheduleFallback(
-        () => db.insert(blogPostsTable).values(defaultContent.blogPosts.map(postToRow)).onConflictDoNothing(),
-        () => db.insert(blogPostsTable).values(defaultContent.blogPosts.map(postToLegacyRow)).onConflictDoNothing()
+        () => db.insert(blogPostsTable).values(defaultContent.blogPosts.map((p) => ({ ...postToRow(p), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
+        () => db.insert(blogPostsTable).values(defaultContent.blogPosts.map((p) => ({ ...postToLegacyRow(p), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
       );
     }
 
@@ -595,20 +597,20 @@ async function ensureDbBootstrap() {
                 const includeRelations = await supportsPortfolioRelationsColumn();
                 await db
                   .insert(portfolioProjectsTable)
-                  .values(defaultContent.portfolioProjects.map((project) => portfolioWriteRow(project, includeRelations)))
+                  .values(defaultContent.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, includeRelations), tenantId: DEFAULT_TENANT_ID })))
                   .onConflictDoNothing();
               },
               async () => {
                 await db
                   .insert(portfolioProjectsTable)
-                  .values(defaultContent.portfolioProjects.map((project) => portfolioWriteRow(project, false)))
+                  .values(defaultContent.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })))
                   .onConflictDoNothing();
               }
             ),
           async () => {
             await db
               .insert(portfolioProjectsTable)
-              .values(defaultContent.portfolioProjects.map((project) => portfolioWriteRow(project, false)))
+              .values(defaultContent.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })))
               .onConflictDoNothing();
           }
         );
@@ -617,12 +619,12 @@ async function ensureDbBootstrap() {
 
     const existingCategories = await db.select({ id: categoriesTable.id }).from(categoriesTable).limit(1);
     if (existingCategories.length === 0) {
-      await db.insert(categoriesTable).values(defaultContent.categories).onConflictDoNothing();
+      await db.insert(categoriesTable).values(defaultContent.categories.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing();
     }
 
     const existingMedia = await db.select({ id: mediaAssetsTable.id }).from(mediaAssetsTable).limit(1);
     if (existingMedia.length === 0) {
-      await db.insert(mediaAssetsTable).values(defaultContent.mediaAssets).onConflictDoNothing();
+      await db.insert(mediaAssetsTable).values(defaultContent.mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing();
     }
 
     const seededPosts = await withLegacyScheduleFallback(
@@ -726,29 +728,30 @@ export async function replaceAllCmsContent(content: CmsContent) {
 
     await tx.insert(siteSettingsTable).values({
       id: 'default',
+      tenantId: DEFAULT_TENANT_ID,
       payload: normalizeSettings(normalized.settings),
       updatedAt: nowIso()
     });
 
-    await tx.insert(pagesTable).values(Object.values(normalized.pages).map(pageToRow));
-    await tx.insert(categoriesTable).values(normalized.categories);
-    await tx.insert(blogPostsTable).values(normalized.blogPosts.map(postToRow));
+    await tx.insert(pagesTable).values(Object.values(normalized.pages).map((p) => ({ ...pageToRow(p), tenantId: DEFAULT_TENANT_ID })));
+    await tx.insert(categoriesTable).values(normalized.categories.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID })));
+    await tx.insert(blogPostsTable).values(normalized.blogPosts.map((p) => ({ ...postToRow(p), tenantId: DEFAULT_TENANT_ID })));
     await withPortfolioTableFallback(async () => {
       await withPortfolioRelationsFallback(
         async () => {
           const includeRelations = await supportsPortfolioRelationsColumn();
           await tx
             .insert(portfolioProjectsTable)
-            .values(normalized.portfolioProjects.map((project) => portfolioWriteRow(project, includeRelations)));
+            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, includeRelations), tenantId: DEFAULT_TENANT_ID })));
         },
         async () => {
           await tx
             .insert(portfolioProjectsTable)
-            .values(normalized.portfolioProjects.map((project) => portfolioWriteRow(project, false)));
+            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })));
         }
       );
     }, undefined);
-    await tx.insert(mediaAssetsTable).values(normalized.mediaAssets);
+    await tx.insert(mediaAssetsTable).values(normalized.mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID })));
   });
 
   await syncBlogPostCategoryLinks(normalized.blogPosts);
@@ -770,6 +773,7 @@ export async function updateSettings(settings: SiteSettings): Promise<SiteSettin
     .insert(siteSettingsTable)
     .values({
       id: 'default',
+      tenantId: DEFAULT_TENANT_ID,
       payload: next,
       updatedAt: nowIso()
     })
@@ -816,7 +820,7 @@ export async function upsertPage(page: LandingPage): Promise<LandingPage> {
 
   await getDb()
     .insert(pagesTable)
-    .values(pageToRow(nextPage))
+    .values({ ...pageToRow(nextPage), tenantId: DEFAULT_TENANT_ID })
     .onConflictDoUpdate({
       target: pagesTable.id,
       set: pageToRow(nextPage)
@@ -971,7 +975,7 @@ export async function createBlogPost(payload?: Partial<BlogPost>): Promise<BlogP
     }
   };
 
-  await getDb().insert(blogPostsTable).values(postToRow(post));
+  await getDb().insert(blogPostsTable).values({ ...postToRow(post), tenantId: DEFAULT_TENANT_ID });
   await syncBlogPostCategoryLinks([post]);
   return post;
 }
@@ -1239,8 +1243,8 @@ export async function createPortfolioProject(
 
   const includeRelations = await supportsPortfolioRelationsColumn();
   await withPortfolioRelationsFallback(
-    () => getDb().insert(portfolioProjectsTable).values(portfolioWriteRow(project, includeRelations)),
-    () => getDb().insert(portfolioProjectsTable).values(portfolioWriteRow(project, false))
+    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, includeRelations), tenantId: DEFAULT_TENANT_ID }),
+    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })
   );
   await withPortfolioTableFallback(async () => {
     await syncPortfolioProjectTagLinks([project]);

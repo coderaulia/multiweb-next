@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 
 import { getDb } from '@/db/client';
 import { adminAuditLogsTable, adminLoginLockoutsTable, adminSessionsTable, adminUsersTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { env } from '@/services/env';
 import { getRedis } from '@/services/redis';
 import {
@@ -248,6 +249,7 @@ async function ensureAdminBootstrap() {
   const now = nowIso();
   const user = {
     id: randomUUID(),
+    tenantId: DEFAULT_TENANT_ID,
     email: normalize(env.adminEmail || DEFAULT_ADMIN_EMAIL).toLowerCase(),
     displayName: normalize(env.adminName || DEFAULT_ADMIN_NAME),
     passwordHash: await hashAdminPassword(password),
@@ -267,6 +269,7 @@ async function createSession(userId: string) {
 
   await getDb().insert(adminSessionsTable).values({
     id: randomUUID(),
+    tenantId: DEFAULT_TENANT_ID,
     userId,
     sessionToken: hashSessionToken(rawToken),
     expiresAt,
@@ -569,6 +572,7 @@ export async function logAdminAuditEvent(request: Request, event: AdminAuditEven
   try {
     await getDb().insert(adminAuditLogsTable).values({
       id: randomUUID(),
+      tenantId: DEFAULT_TENANT_ID,
       userId: event.userId ?? null,
       action: event.action,
       entityType: event.entityType,

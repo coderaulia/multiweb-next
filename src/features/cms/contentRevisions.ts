@@ -6,6 +6,7 @@ import { and, desc, eq } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { cmsContentRevisionsTable } from '@/db/schema';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import { env } from '@/services/env';
 
 import { readRawCmsContent, writeRawCmsContent } from './storeAdapter';
@@ -303,6 +304,7 @@ export async function captureContentRevision(input: CaptureContentRevisionInput)
     try {
       await getDb().insert(cmsContentRevisionsTable).values({
         id: revision.id,
+        tenantId: DEFAULT_TENANT_ID,
         entityType: revision.entityType,
         entityId: revision.entityId,
         label: revision.label,
