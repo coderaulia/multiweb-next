@@ -1,5 +1,5 @@
 /**
- * Seed blog posts from data/content.json into the Supabase database.
+ * Seed blog posts from data/content.json into the database.
  * Only inserts posts that don't already exist (matched by slug).
  *
  * Usage:

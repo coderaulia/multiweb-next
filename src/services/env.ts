@@ -41,31 +41,25 @@ export const env = {
   get databasePoolMax() {
     return parsePositiveInt(process.env.CMS_DB_POOL_MAX);
   },
-  get supabaseUrl() {
-    return clean(process.env.SUPABASE_URL);
+  get s3Endpoint() {
+    return clean(process.env.S3_ENDPOINT);
   },
-  get supabaseServiceRoleKey() {
-    return clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  get s3AccessKey() {
+    return clean(process.env.S3_ACCESS_KEY);
   },
-  get supabaseStorageBucket() {
-    return clean(process.env.SUPABASE_STORAGE_BUCKET) || 'cms-media';
+  get s3SecretKey() {
+    return clean(process.env.S3_SECRET_KEY);
   },
-  get r2AccountId() {
-    return clean(process.env.R2_ACCOUNT_ID);
+  get s3Bucket() {
+    return clean(process.env.S3_BUCKET) || 'cms-media';
   },
-  get r2AccessKeyId() {
-    return clean(process.env.R2_ACCESS_KEY_ID);
+  get s3PublicUrl() {
+    return clean(process.env.S3_PUBLIC_URL);
   },
-  get r2SecretAccessKey() {
-    return clean(process.env.R2_SECRET_ACCESS_KEY);
+  get s3Region() {
+    return clean(process.env.S3_REGION) || 'us-east-1';
   },
-  get r2Bucket() {
-    return clean(process.env.R2_BUCKET);
-  },
-  get r2PublicUrl() {
-    return clean(process.env.R2_PUBLIC_URL);
-  },
-  /** Storage quota in MB. Default 1000 MB (≈1 GB — fits Supabase free tier). R2 free tier is 10 GB. */
+  /** Storage quota in MB. Default 1000 MB. */
   get storageQuotaMb() {
     return parsePositiveInt(process.env.CMS_STORAGE_QUOTA_MB) ?? 1000;
   },

@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Media asset not found.' }, { status: 404 });
   }
 
-  if (!existing.storageKey || !['local', 'supabase', 'r2'].includes(existing.storageProvider)) {
+  if (!existing.storageKey || !['local', 's3', 'supabase', 'r2'].includes(existing.storageProvider)) {
     return NextResponse.json(
       { error: 'Only managed media assets can be replaced without changing the public URL.' },
       { status: 400 }

@@ -43,7 +43,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
   }
 
   const usesManagedStorage =
-    !!existing.storageKey && (existing.storageProvider === 'local' || existing.storageProvider === 'supabase');
+    !!existing.storageKey && (existing.storageProvider === 'local' || existing.storageProvider === 's3' || existing.storageProvider === 'supabase' || existing.storageProvider === 'r2');
   const shouldCleanup =
     usesManagedStorage &&
     (payload.storageProvider !== existing.storageProvider ||
@@ -107,7 +107,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
   if (
     mediaAsset.storageKey &&
-    (mediaAsset.storageProvider === 'local' || mediaAsset.storageProvider === 'supabase')
+    (mediaAsset.storageProvider === 'local' || mediaAsset.storageProvider === 's3' || mediaAsset.storageProvider === 'supabase' || mediaAsset.storageProvider === 'r2')
   ) {
     try {
       await deleteUploadedMedia(mediaAsset.storageKey, mediaAsset.storageProvider);

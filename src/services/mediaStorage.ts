@@ -3,12 +3,11 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize, relative, resolve } from 'node:path';
 
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { createClient } from '@supabase/supabase-js';
 
 import { env } from '@/services/env';
 
 type StoredMedia = {
-  storageProvider: 'local' | 'supabase' | 'r2';
+  storageProvider: 'local' | 's3';
   storageKey: string;
   url: string;
   sizeBytes: number;
@@ -23,23 +22,22 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_SAFE_FILE_NAME_LENGTH = 64;
 const FALLBACK_EXTENSION = '.png';
 
-// SVG intentionally excluded — SVG files can contain inline <script> tags (stored XSS).
+// SVG intentionally excluded - SVG files can contain inline <script> tags (stored XSS).
 type MagicSignature = { offset: number; bytes: readonly number[] };
 
 const MIME_MAGIC: Record<string, MagicSignature[]> = {
   'image/jpeg': [{ offset: 0, bytes: [0xff, 0xd8, 0xff] }],
-  'image/jpg':  [{ offset: 0, bytes: [0xff, 0xd8, 0xff] }],
-  'image/png':  [{ offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }],
-  'image/gif':  [{ offset: 0, bytes: [0x47, 0x49, 0x46, 0x38] }],
+  'image/jpg': [{ offset: 0, bytes: [0xff, 0xd8, 0xff] }],
+  'image/png': [{ offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }],
+  'image/gif': [{ offset: 0, bytes: [0x47, 0x49, 0x46, 0x38] }],
   'image/webp': [{ offset: 0, bytes: [0x52, 0x49, 0x46, 0x46] }],
   'image/heic': [], // HEIC/HEIF uses a variable-length box format; skip magic check
-  'video/mp4':  [{ offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] }], // 'ftyp' box at byte 4
-  'video/webm': [{ offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }],
+  'video/mp4': [{ offset: 4, bytes: [0x66, 0x74, 0x79, 0x70] }], // 'ftyp' box at byte 4
+  'video/webm': [{ offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }]
 };
 
 const ALLOWED_MIME_TYPES = new Set(Object.keys(MIME_MAGIC));
-let supabaseStorageClient: ReturnType<typeof createClient> | null = null;
-let r2Client: S3Client | null = null;
+let s3Client: S3Client | null = null;
 
 function sanitizeFilename(value: string) {
   const safe = value
@@ -113,50 +111,28 @@ function publicUrlPrefix() {
   return env.siteUrl.replace(/\/+$/, '');
 }
 
-function isSupabaseStorageEnabled() {
-  return Boolean(env.supabaseUrl && env.supabaseServiceRoleKey && env.supabaseStorageBucket);
+function isS3Enabled() {
+  return Boolean(env.s3Endpoint && env.s3AccessKey && env.s3SecretKey && env.s3Bucket);
 }
 
-function isR2Enabled() {
-  return Boolean(
-    env.r2AccountId && env.r2AccessKeyId && env.r2SecretAccessKey && env.r2Bucket && env.r2PublicUrl
-  );
-}
-
-function getSupabaseStorageClient() {
-  if (!isSupabaseStorageEnabled()) {
-    throw new Error('Supabase media storage is not configured.');
+function getS3Client() {
+  if (!isS3Enabled()) {
+    throw new Error('S3 storage is not configured. Set S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET.');
   }
 
-  if (!supabaseStorageClient) {
-    supabaseStorageClient = createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    });
-  }
-
-  return supabaseStorageClient;
-}
-
-function getR2Client() {
-  if (!isR2Enabled()) {
-    throw new Error('R2 storage is not configured.');
-  }
-
-  if (!r2Client) {
-    r2Client = new S3Client({
-      region: 'auto',
-      endpoint: `https://${env.r2AccountId}.r2.cloudflarestorage.com`,
+  if (!s3Client) {
+    s3Client = new S3Client({
+      region: env.s3Region || 'us-east-1',
+      endpoint: env.s3Endpoint,
       credentials: {
-        accessKeyId: env.r2AccessKeyId,
-        secretAccessKey: env.r2SecretAccessKey
-      }
+        accessKeyId: env.s3AccessKey,
+        secretAccessKey: env.s3SecretKey
+      },
+      forcePathStyle: true // Required for MinIO and most S3-compatible services
     });
   }
 
-  return r2Client;
+  return s3Client;
 }
 
 function generateStorageKey(file: File) {
@@ -168,6 +144,15 @@ function generateStorageKey(file: File) {
   const id = randomUUID();
   const filename = `${base}-${id.slice(0, 6)}${extension}`;
   return `media/${year}/${month}/${filename}`;
+}
+
+function getS3PublicUrl(storageKey: string) {
+  const publicUrl = env.s3PublicUrl;
+  if (publicUrl) {
+    return `${publicUrl.replace(/\/+$/, '')}/${storageKey}`;
+  }
+  // Fallback: construct from endpoint + bucket
+  return `${env.s3Endpoint.replace(/\/+$/, '')}/${env.s3Bucket}/${storageKey}`;
 }
 
 export async function saveUploadedMedia(file: File, options: SaveUploadedMediaOptions = {}) {
@@ -186,12 +171,12 @@ export async function saveUploadedMedia(file: File, options: SaveUploadedMediaOp
     throw new Error('File content does not match declared type');
   }
 
-  // R2 takes priority, then Supabase, then local
-  if (isR2Enabled()) {
-    const client = getR2Client();
+  // S3-compatible storage (MinIO, R2, AWS S3)
+  if (isS3Enabled()) {
+    const client = getS3Client();
     await client.send(
       new PutObjectCommand({
-        Bucket: env.r2Bucket,
+        Bucket: env.s3Bucket,
         Key: storageKey,
         Body: buffer,
         ContentType: file.type || undefined,
@@ -200,38 +185,14 @@ export async function saveUploadedMedia(file: File, options: SaveUploadedMediaOp
     );
 
     return {
-      storageProvider: 'r2',
+      storageProvider: 's3',
       storageKey,
-      url: `${env.r2PublicUrl.replace(/\/+$/, '')}/${storageKey}`,
+      url: getS3PublicUrl(storageKey),
       sizeBytes: buffer.length
     } as StoredMedia;
   }
 
-  if (isSupabaseStorageEnabled()) {
-    const client = getSupabaseStorageClient();
-    const bucket = env.supabaseStorageBucket;
-    const { error } = await client.storage.from(bucket).upload(storageKey, buffer, {
-      cacheControl: '31536000',
-      contentType: file.type || undefined,
-      upsert: options.upsert ?? false
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    const {
-      data: { publicUrl }
-    } = client.storage.from(bucket).getPublicUrl(storageKey);
-
-    return {
-      storageProvider: 'supabase',
-      storageKey,
-      url: publicUrl,
-      sizeBytes: buffer.length
-    } as StoredMedia;
-  }
-
+  // Local filesystem storage (fallback for dev or forked single-tenant)
   const publicRoot = join(process.cwd(), 'public');
   const fullPath = safeJoin(publicRoot, storageKey);
 
@@ -253,11 +214,12 @@ export async function deleteUploadedMedia(storageKey: string, storageProvider: s
 
   const normalized = normalizeStorageKey(storageKey);
 
-  if (storageProvider === 'r2') {
-    if (!isR2Enabled()) return;
-    const client = getR2Client();
+  // S3-compatible storage (handles 's3', 'r2', 'supabase' provider values for backward compat)
+  if (storageProvider === 's3' || storageProvider === 'r2' || storageProvider === 'supabase') {
+    if (!isS3Enabled()) return;
+    const client = getS3Client();
     try {
-      await client.send(new DeleteObjectCommand({ Bucket: env.r2Bucket, Key: normalized }));
+      await client.send(new DeleteObjectCommand({ Bucket: env.s3Bucket, Key: normalized }));
     } catch (error) {
       if (error instanceof Error && error.name === 'NoSuchKey') return;
       throw error;
@@ -265,19 +227,7 @@ export async function deleteUploadedMedia(storageKey: string, storageProvider: s
     return;
   }
 
-  if (storageProvider === 'supabase') {
-    if (!isSupabaseStorageEnabled()) {
-      return;
-    }
-
-    const client = getSupabaseStorageClient();
-    const { error } = await client.storage.from(env.supabaseStorageBucket).remove([normalized]);
-    if (error && !isSupabaseNotFound(error.message)) {
-      throw new Error(error.message);
-    }
-    return;
-  }
-
+  // Local filesystem
   const publicRoot = join(process.cwd(), 'public');
   const fullPath = safeJoin(publicRoot, normalized);
 
@@ -294,8 +244,4 @@ export async function deleteUploadedMedia(storageKey: string, storageProvider: s
 
 function isNotFoundError(error: unknown) {
   return typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT';
-}
-
-function isSupabaseNotFound(message: string) {
-  return /not found/i.test(message);
 }

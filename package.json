@@ -19,19 +19,16 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:purge": "tsx scripts/purge-supabase.ts",
-    "db:reset": "tsx scripts/reset-supabase.ts",
+    "db:purge": "tsx scripts/purge-database.ts",
+    "db:reset": "tsx scripts/reset-database.ts",
     "db:seed:file": "tsx scripts/import-content.ts",
     "db:seed:blog": "tsx scripts/seed-blog-posts.ts",
     "db:reseed": "npm run db:reset -- --force && npm run db:migrate && npm run db:seed:file",
-    "bootstrap:client": "tsx scripts/bootstrap-client.ts",
-    "media:migrate:supabase": "tsx scripts/migrate-media-to-supabase.ts",
-    "media:migrate:supabase:dry": "tsx scripts/migrate-media-to-supabase.ts --dry-run"
+    "bootstrap:client": "tsx scripts/bootstrap-client.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1043.0",
     "@radix-ui/react-slot": "^1.2.4",
-    "@supabase/supabase-js": "^2.99.2",
     "@tailwindcss/typography": "^0.5.19",
     "autoprefixer": "^10.4.27",
     "class-variance-authority": "^0.7.1",

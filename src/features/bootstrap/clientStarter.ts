@@ -879,7 +879,7 @@ export function buildEnvExample(config: BootstrapConfig) {
 # Public site base URL used for canonical links and sitemap entries.
 NEXT_PUBLIC_SITE_URL=${config.siteUrl}
 
-# Optional public URL used to rewrite \`/media/...\` and \`/portfolio/...\` asset paths to a CDN or Supabase bucket.
+# Optional public URL used to rewrite \`/media/...\` and \`/portfolio/...\` asset paths to a CDN or S3 bucket.
 # If empty, uploaded local assets use NEXT_PUBLIC_SITE_URL.
 MEDIA_PUBLIC_BASE_URL=
 NEXT_PUBLIC_MEDIA_BASE_URL=
@@ -893,7 +893,7 @@ CMS_ADMIN_NAME=${config.adminName}
 # Legacy fallback used only for compatibility and one-time bootstrap if no password is set.
 CMS_ADMIN_TOKEN=
 
-# Supabase Postgres runtime URL used by the app.
+# PostgreSQL connection URL (required for database mode).
 DATABASE_URL=
 
 # Optional direct migration URL if you want to keep runtime and migration credentials separate.
@@ -902,11 +902,14 @@ DATABASE_URL_MIGRATION=
 # Optional fixture preset for \`npm run db:seed:file\` when you want deterministic sample data.
 CMS_SEED_FIXTURE=${config.fixture}
 
-# Optional Supabase Storage configuration for media uploads.
-# When set, admin media uploads are stored in Supabase instead of the local public/ folder.
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_STORAGE_BUCKET=${config.slug}-media
+# S3-compatible object storage (MinIO, Cloudflare R2, AWS S3).
+# When set, admin media uploads are stored in S3 instead of the local public/ folder.
+S3_ENDPOINT=
+S3_ACCESS_KEY=
+S3_SECRET_KEY=
+S3_BUCKET=${config.slug}-media
+S3_PUBLIC_URL=
+S3_REGION=us-east-1
 
 # Optional fallback organization values for structured data.
 CMS_ORG_NAME=${config.organizationName}
