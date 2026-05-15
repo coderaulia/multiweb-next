@@ -4,6 +4,7 @@ import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { getDb } from '@/db/client';
 import { requestRateLimitsTable } from '@/db/schema';
 import { env } from '@/services/env';
+import { getRedis } from '@/services/redis';
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from '@/services/securityConstants';
 
 type RateLimitEntry = {
@@ -236,6 +237,41 @@ function assertRateLimitInMemory(request: Request, scope: string, limit: number,
   return null;
 }
 
+async function assertRateLimitInRedis(
+  request: Request,
+  scope: string,
+  limit: number,
+  windowMs: number
+): Promise<NextResponse | null> {
+  const redis = getRedis();
+  if (!redis || redis.status !== 'ready') return null; // signal caller to try next strategy
+
+  const key = `rl:${scope}:${getClientIdentifier(request)}`;
+  const windowSec = Math.ceil(windowMs / 1000);
+
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, windowSec);
+  }
+
+  if (count > limit) {
+    const ttl = await redis.ttl(key);
+    const retryAfter = ttl > 0 ? ttl : windowSec;
+    return NextResponse.json(
+      { error: 'Too many requests. Please retry later.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(retryAfter),
+          'Cache-Control': 'no-store'
+        }
+      }
+    );
+  }
+
+  return null;
+}
+
 async function pruneExpiredRateLimits() {
   if (!env.databaseUrl) return;
   try {
@@ -247,6 +283,18 @@ async function pruneExpiredRateLimits() {
 }
 
 export async function assertRateLimit(request: Request, scope: string, limit: number, windowMs: number) {
+  // Try Redis first (fastest, atomic)
+  try {
+    const redisResult = await assertRateLimitInRedis(request, scope, limit, windowMs);
+    if (redisResult !== null) return redisResult;
+    // If Redis returned null and is connected, it means under limit
+    const redis = getRedis();
+    if (redis && redis.status === 'ready') return null;
+  } catch {
+    // Redis unavailable, fall through
+  }
+
+  // Fallback to database
   if (env.databaseUrl) {
     if (Math.random() < 0.01) {
       void pruneExpiredRateLimits();
@@ -259,6 +307,7 @@ export async function assertRateLimit(request: Request, scope: string, limit: nu
     }
   }
 
+  // Last resort: in-memory
   return assertRateLimitInMemory(request, scope, limit, windowMs);
 }
 

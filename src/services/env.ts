@@ -38,6 +38,9 @@ export const env = {
   get databaseUrl() {
     return clean(process.env.DATABASE_URL);
   },
+  get redisUrl() {
+    return clean(process.env.REDIS_URL);
+  },
   get databasePoolMax() {
     return parsePositiveInt(process.env.CMS_DB_POOL_MAX);
   },
