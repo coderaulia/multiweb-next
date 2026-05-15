@@ -1,0 +1,449 @@
+export type PageId =
+  | 'home'
+  | 'about'
+  | 'service'
+  | 'product-hris'
+  | 'contact'
+  | 'partnership'
+  | 'service-website-development'
+  | 'service-custom-business-tools'
+  | 'service-secure-online-shops'
+  | 'service-mobile-business-app'
+  | 'service-official-business-email';
+
+export type ServiceDetailPageId =
+  | 'service-website-development'
+  | 'service-custom-business-tools'
+  | 'service-secure-online-shops'
+  | 'service-mobile-business-app'
+  | 'service-official-business-email';
+
+export type SectionLayout = 'stacked' | 'split';
+
+export type BlogStatus = 'draft' | 'published';
+export type PortfolioStatus = 'draft' | 'published';
+export type PublicationStatusLabel = 'draft' | 'scheduled' | 'published' | 'scheduled-unpublish' | 'expired';
+export type AdminRole = 'super_admin' | 'admin' | 'editor' | 'analyst';
+export type AdminPermission =
+  | 'dashboard:view'
+  | 'analytics:view'
+  | 'audit:view'
+  | 'content:edit'
+  | 'content:publish'
+  | 'content:delete'
+  | 'settings:edit'
+  | 'media:edit'
+  | 'taxonomy:edit'
+  | 'team:manage';
+
+export type HomeThemeToken = 'light' | 'blue-soft' | 'mist';
+
+export type CtaStyleToken = 'primary' | 'secondary' | 'ghost';
+
+export type SeoFields = {
+  metaTitle: string;
+  metaDescription: string;
+  slug: string;
+  canonical: string;
+  socialImage: string;
+  noIndex: boolean;
+  keywords?: string[];
+};
+
+export type SectionTheme = {
+  background: string;
+  text: string;
+  accent: string;
+};
+
+export type PageSection = {
+  id: string;
+  heading: string;
+  body: string;
+  ctaLabel: string;
+  ctaHref: string;
+  mediaImage: string;
+  mediaAlt: string;
+  layout: SectionLayout;
+  theme: SectionTheme;
+};
+
+export type HomeBlockType =
+  | 'hero'
+  | 'value_triplet'
+  | 'solutions_grid'
+  | 'why_split'
+  | 'logo_cloud'
+  | 'primary_cta';
+
+export type HomeBlockBase = {
+  id: string;
+  type: HomeBlockType;
+  enabled: boolean;
+  theme: HomeThemeToken;
+};
+
+export type HeroBlock = HomeBlockBase & {
+  type: 'hero';
+  badge: string;
+  titlePrimary: string;
+  titleAccent: string;
+  description: string;
+  primaryCtaLabel: string;
+  primaryCtaHref: string;
+  primaryCtaStyle: CtaStyleToken;
+  secondaryCtaLabel: string;
+  secondaryCtaHref: string;
+  secondaryCtaStyle: CtaStyleToken;
+  animatedWords?: string[];
+};
+export type ValueTripletBlock = HomeBlockBase & {
+  type: 'value_triplet';
+  items: Array<{
+    id: string;
+    icon: string;
+    title: string;
+    text: string;
+  }>;
+};
+
+export type SolutionsGridBlock = HomeBlockBase & {
+  type: 'solutions_grid';
+  heading: string;
+  subheading: string;
+  items: Array<{
+    id: string;
+    number: string;
+    title: string;
+    text: string;
+    ctaLabel: string;
+    ctaHref: string;
+  }>;
+};
+
+export type WhySplitBlock = HomeBlockBase & {
+  type: 'why_split';
+  heading: string;
+  description: string;
+  bullets: Array<{
+    id: string;
+    title: string;
+    text: string;
+  }>;
+  mediaImage: string;
+  mediaAlt: string;
+};
+
+export type LogoCloudBlock = HomeBlockBase & {
+  type: 'logo_cloud';
+  heading: string;
+  logos: Array<{
+    id: string;
+    name: string;
+  }>;
+  primaryCtaLabel: string;
+  primaryCtaHref: string;
+  secondaryCtaLabel: string;
+  secondaryCtaHref: string;
+};
+
+export type PrimaryCtaBlock = HomeBlockBase & {
+  type: 'primary_cta';
+  heading: string;
+  accentText: string;
+  description: string;
+  ctaLabel: string;
+  ctaHref: string;
+  ctaStyle: CtaStyleToken;
+};
+
+export type HomeBlock =
+  | HeroBlock
+  | ValueTripletBlock
+  | SolutionsGridBlock
+  | WhySplitBlock
+  | LogoCloudBlock
+  | PrimaryCtaBlock;
+
+export type LandingPage = {
+  id: PageId;
+  title: string;
+  navLabel: string;
+  published: boolean;
+  scheduledPublishAt?: string | null;
+  scheduledUnpublishAt?: string | null;
+  seo: SeoFields;
+  sections: PageSection[];
+  homeBlocks?: HomeBlock[];
+  updatedAt: string;
+};
+
+export type BlogPost = {
+  id: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  author: string;
+  categoryId: string | null;
+  tags: string[];
+  coverImage: string;
+  status: BlogStatus;
+  publishedAt: string | null;
+  scheduledPublishAt?: string | null;
+  scheduledUnpublishAt?: string | null;
+  updatedAt: string;
+  seo: SeoFields;
+};
+
+export type PortfolioProject = {
+  id: string;
+  title: string;
+  summary: string;
+  challenge: string;
+  solution: string;
+  outcome: string;
+  clientName: string;
+  serviceType: string;
+  industry: string;
+  projectUrl: string;
+  relatedServicePageIds: ServiceDetailPageId[];
+  coverImage: string;
+  gallery: string[];
+  tags: string[];
+  featured: boolean;
+  status: PortfolioStatus;
+  sortOrder: number;
+  publishedAt: string | null;
+  scheduledPublishAt?: string | null;
+  scheduledUnpublishAt?: string | null;
+  updatedAt: string;
+  seo: SeoFields;
+};
+
+export type Category = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MediaAsset = {
+  id: string;
+  title: string;
+  url: string;
+  altText: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number | null;
+  checksumSha256?: string | null;
+  storageProvider: string;
+  storageKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContactSubmissionStatus = 'new' | 'in_review' | 'closed';
+
+export type ContactSubmission = {
+  id: string;
+  name: string;
+  company: string;
+  email: string;
+  serviceCategory: string;
+  projectOverview: string;
+  status: ContactSubmissionStatus;
+  createdAt: string;
+};
+
+export type GeneralSettings = {
+  siteName: string;
+  siteTagline: string;
+  baseUrl: string;
+  adminEmail: string;
+  timezone: string;
+  language: string;
+  dateFormat: string;
+  timeFormat: string;
+  weekStartsOn: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+};
+
+export type NavigationLink = {
+  id: string;
+  label: string;
+  href: string;
+  enabled: boolean;
+  children?: NavigationLink[];
+};
+
+export type NavigationSettings = {
+  headerLinks: NavigationLink[];
+  headerCtaLabel: string;
+  headerCtaHref: string;
+  footerNavigatorLinks: NavigationLink[];
+  footerServiceLinks: NavigationLink[];
+};
+
+export type ContactSettings = {
+  companyName: string;
+  addressLine1: string;
+  addressLine2: string;
+  globalReachLabel: string;
+  globalReachText: string;
+  emailLabel: string;
+  emailValue: string;
+  emailHref: string;
+  whatsappLabel: string;
+  whatsappValue: string;
+  whatsappHref: string;
+  instagramLabel: string;
+  instagramValue: string;
+  instagramHref: string;
+};
+
+export type SocialSettings = {
+  chatHref: string;
+  instagramHref: string;
+  websiteHref: string;
+  emailHref: string;
+};
+
+export type BrandingSettings = {
+  headerLogo: string;
+  footerLogo: string;
+  siteIcon: string;
+  footerTagline: string;
+  footerBadgePrimary: string;
+  footerBadgeSecondary: string;
+  copyrightText: string;
+};
+
+export type WritingSettings = {
+  defaultPostCategory: string;
+  defaultPostFormat: 'standard' | 'aside' | 'gallery' | 'video';
+  defaultPostStatus: BlogStatus;
+  defaultPostAuthor: string;
+  convertEmoticons: boolean;
+  requireReviewBeforePublish: boolean;
+  pingServices: string[];
+};
+
+export type ReadingSettings = {
+  homepageDisplay: 'latest_posts' | 'static_page';
+  homepagePageId: PageId | '';
+  postsPageId: PageId | '';
+  postsPerPage: number;
+  feedItems: number;
+  feedSummary: 'full' | 'excerpt';
+  discourageSearchEngines: boolean;
+};
+
+export type DiscussionSettings = {
+  commentsEnabled: boolean;
+  commentRegistrationRequired: boolean;
+  closeCommentsAfterDays: number;
+  threadedCommentsEnabled: boolean;
+  threadDepth: number;
+  requireCommentApproval: boolean;
+  notifyOnComment: boolean;
+};
+
+export type MediaSettings = {
+  uploadOrganizeByMonth: boolean;
+  thumbnailWidth: number;
+  thumbnailHeight: number;
+  mediumMaxWidth: number;
+  mediumMaxHeight: number;
+  largeMaxWidth: number;
+  largeMaxHeight: number;
+};
+
+export type PermalinkSettings = {
+  postPermalinkStructure: string;
+  categoryBase: string;
+  tagBase: string;
+};
+
+export type SeoGlobalSettings = {
+  titleTemplate: string;
+  defaultMetaDescription: string;
+  defaultOgImage: string;
+  defaultNoIndex: boolean;
+};
+
+export type SitemapSettings = {
+  enabled: boolean;
+  includePages: boolean;
+  includePosts: boolean;
+  includePortfolio: boolean;
+  includeLastModified: boolean;
+};
+
+export type SiteSettings = {
+  general: GeneralSettings;
+  navigation: NavigationSettings;
+  contact: ContactSettings;
+  social: SocialSettings;
+  branding: BrandingSettings;
+  writing: WritingSettings;
+  reading: ReadingSettings;
+  discussion: DiscussionSettings;
+  media: MediaSettings;
+  permalinks: PermalinkSettings;
+  seo: SeoGlobalSettings;
+  sitemap: SitemapSettings;
+
+  /** @deprecated — use `general.siteName` directly. These aliases will be removed once all consumers are updated. */
+  siteName: string;
+  baseUrl: string;
+  organizationName: string;
+  organizationLogo: string;
+  defaultOgImage: string;
+};
+
+export type CmsContent = {
+  settings: SiteSettings;
+  pages: Record<PageId, LandingPage>;
+  blogPosts: BlogPost[];
+  portfolioProjects: PortfolioProject[];
+  categories: Category[];
+  mediaAssets: MediaAsset[];
+};
+
+export type CmsRevisionEntityType = 'page' | 'blog_post' | 'portfolio_project' | 'site_settings' | 'full_site';
+
+export type CmsRevisionPayload = LandingPage | BlogPost | PortfolioProject | SiteSettings | CmsContent;
+
+export type CmsContentRevision = {
+  id: string;
+  entityType: CmsRevisionEntityType;
+  entityId: string;
+  label: string;
+  summary: string;
+  createdAt: string;
+  userId: string | null;
+  userDisplayName: string | null;
+  payload: CmsRevisionPayload;
+};
+
+export type CmsContentRevisionSummary = Omit<CmsContentRevision, 'payload'>;
+
+export type ContentHealthSeverity = 'error' | 'warning';
+
+export type ContentHealthItem = {
+  id: string;
+  severity: ContentHealthSeverity;
+  category: 'media' | 'links' | 'seo' | 'slugs';
+  label: string;
+  detail: string;
+  href: string;
+};
+
+export type ContentHealthReport = {
+  checkedAt: string;
+  errors: number;
+  warnings: number;
+  items: ContentHealthItem[];
+};

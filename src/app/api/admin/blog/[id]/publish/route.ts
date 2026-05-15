@@ -1,0 +1,50 @@
+import { NextResponse } from 'next/server';
+
+import { assertAdminPermission, logAdminAuditEvent } from '@/features/cms/adminAuth';
+import { captureContentRevision } from '@/features/cms/contentRevisions';
+import { setPostStatus } from '@/features/cms/contentStore';
+import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
+
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
+export async function POST(request: Request, { params }: RouteContext) {
+  const auth = await assertAdminPermission(request, 'content:publish');
+  if ('error' in auth) return auth.error;
+  const session = auth.session;
+
+  const { id } = await params;
+  const post = await setPostStatus(id, 'published');
+  if (!post) {
+    return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+  }
+
+  try {
+    await captureContentRevision({
+      entityType: 'blog_post',
+      entityId: post.id,
+      label: 'Published post',
+      payload: post,
+      userId: session.user.id,
+      userDisplayName: session?.user.displayName ?? null
+    });
+
+    await logAdminAuditEvent(request, {
+      action: 'blog.publish',
+      entityType: 'blog_post',
+      entityId: post.id,
+      userId: session.user.id,
+      metadata: {
+        title: post.title,
+        slug: post.seo.slug,
+        status: post.status
+      }
+    });
+  } catch {
+    // swallow audit log failures
+  }
+
+  revalidatePublicCmsCache();
+  return NextResponse.json({ post });
+}
