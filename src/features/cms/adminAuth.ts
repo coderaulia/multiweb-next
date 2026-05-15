@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/db/client';
 import { adminAuditLogsTable, adminLoginLockoutsTable, adminSessionsTable, adminUsersTable } from '@/db/schema';
 import { env } from '@/services/env';
+import { getRedis } from '@/services/redis';
 import {
   assertCsrfToken,
   assertTrustedMutationRequest,
@@ -278,16 +279,26 @@ async function createSession(userId: string) {
 function createFallbackSession(user: AdminSessionUser) {
   const rawToken = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+  // Try Redis first
+  const redis = getRedis();
+  if (redis && redis.status === 'ready') {
+    const sessionData = JSON.stringify({ user, expiresAt });
+    const ttlSec = Math.ceil(SESSION_TTL_MS / 1000);
+    redis.set(`session:${rawToken}`, sessionData, 'EX', ttlSec).catch(() => {
+      // If Redis write fails, store in memory as last resort
+      getFallbackSessionStore().set(rawToken, { user, expiresAt });
+    });
+    return { rawToken, expiresAt };
+  }
+
+  // In-memory fallback (last resort)
+  console.error('[auth] WARN: DB and Redis unavailable. Using volatile in-memory session store. Sessions will not persist across restarts.');
   const store = getFallbackSessionStore();
-
-  console.error('[auth] WARN: DB unavailable. Using volatile in-memory session store. Sessions will not persist across restarts.');
-
-  // Cap at 500 sessions to prevent unbounded memory growth; evict oldest entry
   if (store.size >= 500) {
     const oldest = store.keys().next().value;
     if (oldest) store.delete(oldest);
   }
-
   store.set(rawToken, { user, expiresAt });
   return { rawToken, expiresAt };
 }
@@ -296,22 +307,63 @@ function getFallbackSession(rawToken: string): AdminSession | null {
   const token = normalize(rawToken);
   if (!token) return null;
 
+  // Check in-memory store
   const session = getFallbackSessionStore().get(token);
-  if (!session) return null;
-
-  if (new Date(session.expiresAt).getTime() <= Date.now()) {
-    getFallbackSessionStore().delete(token);
-    return null;
+  if (session) {
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      getFallbackSessionStore().delete(token);
+      return null;
+    }
+    return session;
   }
 
-  return session;
+  return null;
+}
+
+async function getFallbackSessionAsync(rawToken: string): Promise<AdminSession | null> {
+  const token = normalize(rawToken);
+  if (!token) return null;
+
+  // Try Redis first
+  const redis = getRedis();
+  if (redis && redis.status === 'ready') {
+    try {
+      const data = await redis.get(`session:${token}`);
+      if (data) {
+        const parsed = JSON.parse(data) as AdminSession;
+        if (new Date(parsed.expiresAt).getTime() > Date.now()) {
+          return parsed;
+        }
+        await redis.del(`session:${token}`);
+        return null;
+      }
+    } catch {
+      // Fall through to in-memory
+    }
+  }
+
+  // In-memory fallback
+  return getFallbackSession(token);
 }
 
 async function deleteSessionByRawToken(rawToken: string) {
   const token = normalize(rawToken);
   if (!token) return;
 
+  // Clean from in-memory store
   getFallbackSessionStore().delete(token);
+
+  // Clean from Redis
+  const redis = getRedis();
+  if (redis && redis.status === 'ready') {
+    try {
+      await redis.del(`session:${token}`);
+    } catch {
+      // ignore Redis cleanup errors
+    }
+  }
+
+  // Clean from database
   if (!env.databaseUrl) return;
 
   try {
@@ -623,7 +675,7 @@ export async function getAdminSession(request: Request): Promise<AdminSession | 
       throw error;
     }
 
-    return getFallbackSession(rawToken);
+    return getFallbackSessionAsync(rawToken);
   }
 }
 
