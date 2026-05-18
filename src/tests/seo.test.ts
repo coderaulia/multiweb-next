@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { defaultContent } from '@/features/cms/defaultContent';
+import { getDefaultContent } from '@/features/cms/defaultContent';
 import { buildCanonical, buildMetadata } from '@/features/cms/seo';
 import type { SeoFields, SiteSettings } from '@/features/cms/types';
 
 const site: SiteSettings = {
-  ...defaultContent.settings,
+  ...getDefaultContent().settings,
   general: {
-    ...defaultContent.settings.general,
+    ...getDefaultContent().settings.general,
     siteName: 'Acme Marketing',
     baseUrl: 'https://example.com'
   },
   seo: {
-    ...defaultContent.settings.seo,
+    ...getDefaultContent().settings.seo,
     defaultOgImage: 'https://example.com/og.png'
   },
   siteName: 'Acme Marketing',

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
-import { siteProfile } from '@/config/site-profile';
 import type { SiteSettings } from '@/features/cms/types';
 
 import { useCursorMode } from './CustomCursor';
@@ -101,19 +100,7 @@ export function SiteHeader({ siteName, navItems, settings }: SiteHeaderProps) {
               </span>
             )}
           </Link>
-          <span
-            className="hidden md:inline"
-            style={{
-              fontFamily: 'var(--font-mono, monospace)',
-              fontSize: 10,
-              letterSpacing: '0.1em',
-              color: 'rgba(10,14,26,0.55)',
-              paddingLeft: 14,
-              borderLeft: '1px solid rgba(10,14,26,0.12)',
-            }}
-          >
-            {siteProfile.brand.wordmark.replace('.', '').toUpperCase()} · SINCE 2018
-          </span>
+
         </div>
 
         {/* Nav links (desktop) */}

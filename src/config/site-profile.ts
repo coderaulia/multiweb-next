@@ -2,28 +2,19 @@ import type { PageId } from '@/features/cms/types';
 
 export const siteProfile = {
   brand: {
-    mark: 'V',
-    wordmark: 'vanaila.'
+    mark: '',
+    wordmark: 'CMS'
   },
   navigation: {
-    primaryPageOrder: ['home', 'about', 'service', 'product-hris', 'partnership', 'contact'] as const satisfies readonly PageId[],
+    primaryPageOrder: ['home', 'about', 'service', 'contact'] as const satisfies readonly PageId[],
     fallbackNavigator: [
       { href: '/', label: 'Home' },
       { href: '/about', label: 'About Us' },
       { href: '/service', label: 'Services' },
-      { href: '/hris', label: 'HRIS' },
-      { href: '/blog', label: 'Insights' },
-      { href: '/partnership', label: 'Partnership' },
+      { href: '/blog', label: 'Blog' },
       { href: '/contact', label: 'Contact' }
     ],
-    fallbackServices: [
-      { href: '/hris', label: 'Vanaila HRIS' },
-      { href: '/website-development', label: 'Website Development' },
-      { href: '/secure-online-shops', label: 'Secure Online Shops' },
-      { href: '/mobile-business-app', label: 'Mobile Business App' },
-      { href: '/official-business-email', label: 'Official Business Email' },
-      { href: '/custom-business-tools', label: 'Custom Business Tools' }
-    ]
+    fallbackServices: [] as { href: string; label: string }[]
   },
   routing: {
     reservedSlugs: ['admin', 'api', 'blog', 'sitemap.xml', 'robots.txt', 'portfolio'] as const,

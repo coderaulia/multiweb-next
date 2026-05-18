@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { SymbolIcon } from '@/components/ui/symbol-icon';
 import type { BlogPost } from '@/features/cms/types';
 
-import { formatDateLabel } from './sectionContent';
+import { formatDateLabel } from '@/lib/formatDate';
 import { Reveal } from '@/components/animations/Reveal';
 
 type BlogPostViewProps = {

@@ -1,9 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 
-import { VanailaRedesignHome } from '@/components/home/VanailaRedesignHome';
 import { MarketingPageRenderer } from '@/components/MarketingPageRenderer';
 import { buildMetadata } from '@/features/cms/seo';
-import { getPublishedPage, getPublishedPortfolioProjects, getSiteSettings } from '@/features/cms/publicApi';
+import { getPublishedPage, getSiteSettings } from '@/features/cms/publicApi';
 
 type TenantHomePageProps = {
   params: Promise<{ tenant: string }>;
@@ -17,11 +16,7 @@ export async function generateMetadata() {
 
 export default async function TenantHomePage({ params }: TenantHomePageProps) {
   const { tenant } = await params;
-  const [settings, homePage, projects] = await Promise.all([
-    getSiteSettings(),
-    getPublishedPage('home'),
-    getPublishedPortfolioProjects()
-  ]);
+  const [settings, homePage] = await Promise.all([getSiteSettings(), getPublishedPage('home')]);
 
   if (settings.reading.homepageDisplay === 'latest_posts') {
     redirect(`/${tenant}/blog`);
@@ -35,8 +30,5 @@ export default async function TenantHomePage({ params }: TenantHomePageProps) {
   }
 
   if (!homePage) notFound();
-  if (homePage.homeBlocks && homePage.homeBlocks.length > 0) {
-    return <VanailaRedesignHome page={homePage} projects={projects} />;
-  }
   return <MarketingPageRenderer page={homePage} />;
 }

@@ -1,6 +1,5 @@
 import Link from 'next/link';
 
-import { siteProfile } from '@/config/site-profile';
 import type { SiteSettings } from '@/features/cms/types';
 
 type NavLink = {
@@ -27,10 +26,8 @@ export function SiteFooter({ siteName, settings }: SiteFooterProps) {
 
   const navigatorLinks = settings.navigation.footerNavigatorLinks.filter((l) => l.enabled);
   const serviceLinks = settings.navigation.footerServiceLinks.filter((l) => l.enabled);
-  const footerNavigator =
-    navigatorLinks.length > 0 ? navigatorLinks.map(mapLink) : siteProfile.navigation.fallbackNavigator;
-  const footerServices =
-    serviceLinks.length > 0 ? serviceLinks.map(mapLink) : siteProfile.navigation.fallbackServices;
+  const footerNavigator = navigatorLinks.length > 0 ? navigatorLinks.map(mapLink) : [];
+  const footerServices = serviceLinks.length > 0 ? serviceLinks.map(mapLink) : [];
 
   const copyright =
     settings.branding.copyrightText.trim() || `© ${new Date().getFullYear()} ${brandName}.`;

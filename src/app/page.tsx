@@ -1,9 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 
-import { VanailaRedesignHome } from '@/components/home/VanailaRedesignHome';
 import { MarketingPageRenderer } from '@/components/MarketingPageRenderer';
 import { buildMetadata } from '@/features/cms/seo';
-import { getPublishedPage, getPublishedPortfolioProjects, getSiteSettings } from '@/features/cms/publicApi';
+import { getPublishedPage, getSiteSettings } from '@/features/cms/publicApi';
 
 export async function generateMetadata() {
   const [settings, page] = await Promise.all([getSiteSettings(), getPublishedPage('home')]);
@@ -16,11 +15,7 @@ export async function generateMetadata() {
 }
 
 export default async function HomePage() {
-  const [settings, homePage, projects] = await Promise.all([
-    getSiteSettings(),
-    getPublishedPage('home'),
-    getPublishedPortfolioProjects()
-  ]);
+  const [settings, homePage] = await Promise.all([getSiteSettings(), getPublishedPage('home')]);
 
   if (settings.reading.homepageDisplay === 'latest_posts') {
     redirect('/blog');
@@ -34,8 +29,5 @@ export default async function HomePage() {
   }
 
   if (!homePage) notFound();
-  if (homePage.homeBlocks && homePage.homeBlocks.length > 0) {
-    return <VanailaRedesignHome page={homePage} projects={projects} />;
-  }
   return <MarketingPageRenderer page={homePage} />;
 }

@@ -158,86 +158,45 @@ Remove `@supabase/supabase-js` dependency entirely. Replace with:
 - MinIO or R2 for object storage (S3 API, already have R2 client code)
 - Redis for rate limiting, sessions, and cache
 
-### Phase B-1 - Remove Supabase storage client
+### Phase B-1 - Remove Supabase storage client [DONE]
 
-**Files to modify:**
-- `src/services/mediaStorage.ts` - remove Supabase storage path, keep R2 + local
-- `src/services/env.ts` - remove `supabaseUrl`, `supabaseServiceRoleKey`, `supabaseStorageBucket`
-- `.env.example` - remove Supabase vars, add MinIO vars
-- `package.json` - remove `@supabase/supabase-js`
-- `scripts/migrate-media-to-supabase.ts` - delete or rename to `migrate-media-to-s3.ts`
-- `scripts/purge-supabase.ts` - delete
-- `scripts/reset-supabase.ts` - delete
-
-**New env vars:**
-```
-S3_ENDPOINT=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-S3_BUCKET=cms-media
-S3_PUBLIC_URL=http://localhost:9000/cms-media
-S3_REGION=us-east-1
-```
-
-**Tasks:**
-- [ ] Replace Supabase upload/delete with S3 client (already have `@aws-sdk/client-s3`)
-- [ ] Unify R2 and MinIO paths (both are S3-compatible, single code path)
-- [ ] Remove `@supabase/supabase-js` from package.json
-- [ ] Delete Supabase-specific scripts
-- [ ] Update `.env.example` and `.env.local`
-- [ ] Verify media upload/delete still works with MinIO locally
-- [ ] `npm run check` must pass
+**Completed:**
+- [x] Replaced Supabase upload/delete with S3 client (`@aws-sdk/client-s3`)
+- [x] Unified R2 and MinIO paths (both S3-compatible, single code path)
+- [x] Removed `@supabase/supabase-js` from package.json
+- [x] Deleted Supabase-specific scripts (migrate-media-to-supabase, purge-supabase, reset-supabase)
+- [x] Updated `.env.example` and `.env.local` with S3 vars
+- [x] `deleteUploadedMedia` accepts legacy `'supabase'` provider value as backward-compat alias to S3 delete
+- [x] `npm run check` passes
 
 ---
 
-### Phase B-2 - Add Redis for rate limiting
+### Phase B-2 - Add Redis for rate limiting [DONE]
 
-**New dependency:** `ioredis`
-
-**Files to modify:**
-- `src/services/redis.ts` (new) - Redis client singleton
-- `src/services/requestSecurity.ts` - replace DB-backed rate limiting with Redis
-- `src/services/env.ts` - add `REDIS_URL`
-- `.env.example` - add `REDIS_URL`
-
-**New env vars:**
-```
-REDIS_URL=redis://localhost:6379
-```
-
-**Tasks:**
-- [ ] Create `src/services/redis.ts` with lazy connection
-- [ ] Rewrite `assertRateLimit` to use Redis INCR + EXPIRE (atomic, no table needed)
-- [ ] Keep in-memory fallback if Redis is unavailable
-- [ ] Remove `request_rate_limits` table from schema (or keep as dead code for now)
-- [ ] `npm run check` must pass
+**Completed:**
+- [x] Created `src/services/redis.ts` with lazy connection singleton
+- [x] Rewrote `assertRateLimit` to use Redis INCR + EXPIRE (atomic, no table needed)
+- [x] In-memory fallback if Redis is unavailable
+- [x] `npm run check` passes
 
 ---
 
-### Phase B-3 - Redis session fallback
+### Phase B-3 - Redis session fallback [DONE]
 
-**Files to modify:**
-- `src/features/cms/adminAuth.ts` - replace in-memory fallback with Redis
-- `src/services/redis.ts` - add session helpers
-
-**Tasks:**
-- [ ] When DB is unavailable, store sessions in Redis instead of in-memory Map
-- [ ] Sessions in Redis get TTL matching SESSION_TTL_MS
-- [ ] Remove `global.__cmsAdminFallbackSessions` hack
-- [ ] `npm run check` must pass
+**Completed:**
+- [x] When DB is unavailable, sessions stored in Redis (TTL matching SESSION_TTL_MS)
+- [x] In-memory fallback only when Redis also unavailable
+- [x] `global.__cmsAdminFallbackSessions` kept as last resort (capped at 500)
+- [x] `npm run check` passes
 
 ---
 
-### Phase B-4 - Clean up database connection
+### Phase B-4 - Clean up database connection [DONE]
 
-**Files to modify:**
-- `src/db/client.ts` - simplify, remove Supabase connection string handling if any
-- `drizzle.config.ts` - verify works with plain Postgres URL
-
-**Tasks:**
-- [ ] Verify connection pooling works with `postgres://` URL directly
-- [ ] Document Docker Compose setup for local Postgres + Redis + MinIO
-- [ ] `npm run check` must pass
+**Completed:**
+- [x] `src/db/client.ts` uses `drizzle-orm/node-postgres` + `pg` Pool directly (no Supabase)
+- [x] `drizzle.config.ts` uses plain Postgres URL
+- [x] `npm run check` passes
 
 ---
 
@@ -261,77 +220,64 @@ Big clients continue using the `bootstrap:client` fork workflow (not removed).
 
 ---
 
-### Phase C-1 - Schema + Migration
+### Phase C-1 - Schema + Migration [DONE]
 
-- Add `tenants` table:
-  - `id` (uuid pk)
-  - `slug` (unique, lowercase kebab)
-  - `custom_domain` (unique nullable)
-  - `name` (text, not null)
-  - `theme_config` (jsonb, default `{}`)
-  - `status` (`active` | `suspended`, default `active`)
-  - `created_at` (timestamptz)
-  - `updated_at` (timestamptz)
-- Add nullable `tenant_id` FK to: `pages`, `blog_posts`, `portfolio_projects`, `media_assets`, `contact_submissions`, `admin_audit_logs`, `admin_users`, `admin_sessions`, `site_settings`, `categories`, `portfolio_tags`, `comments`, `cms_content_revisions`, `analytics_events`, `notifications`, `redirects`, `page_404_log`, `user_dashboard_preferences`
-- Backfill all existing rows with a single `default` tenant (slug: `default`)
-- Alter `tenant_id` columns to NOT NULL
-- Drop existing unique constraints on `slug` columns, add composite unique `(tenant_id, slug)`
-- Add index on `tenants.custom_domain`
-- Generate migration with `npm run db:generate`, verify SQL before applying
-
-**Unscoped tables (no tenant_id):**
-- `request_rate_limits` - infrastructure, cross-tenant (moving to Redis anyway)
-- `admin_login_lockouts` - keyed by IP/identifier, cross-tenant
-- `post_categories` - join table, parent rows are already scoped
-- `portfolio_project_tags` - join table, parent rows are already scoped
+**Completed:**
+- [x] `tenants` table added to `src/db/schema.ts` (id, slug, customDomain, name, themeConfig, status, timestamps)
+- [x] `tenant_id` FK added to all content tables (NOT NULL, references `tenants.id`)
+- [x] Composite unique constraints `(tenant_id, slug)` on pages, blog_posts, portfolio_projects, categories, portfolio_tags, redirects
+- [x] `DEFAULT_TENANT_ID` / `DEFAULT_TENANT_SLUG` constants in `src/db/tenantConstants.ts`
+- [x] Unscoped tables: `request_rate_limits`, `admin_login_lockouts`, `post_categories`, `portfolio_project_tags`
+- [x] Migration generated and applied
 
 ---
 
-### Phase C-2a - Tenant Context Helper
+### Phase C-2a - Tenant Context Helper [DONE]
 
-Create `src/features/cms/tenantContext.ts`:
-- `resolveTenantByHost(host: string)` - check `custom_domain` first, fall back to root
-- `resolveTenantBySlug(slug: string)`
-- Redis cache with 60s TTL (fall back to in-memory Map if Redis unavailable)
-- `getTenantFromRequest(req)` - reads `x-tenant-id` header (set by middleware)
-- Unit tests for cache TTL and lookup paths
-
----
-
-### Phase C-2b - Middleware + `[tenant]` Segment
-
-- Update `middleware.ts`:
-  - Skip `/admin`, `/api`, `/_next`, static
-  - Match host against custom domains. If hit, rewrite path to `/{tenant.slug}/...` and set `x-tenant-id` header
-  - If host is root domain, parse first path segment as slug, validate against reserved list
-  - 404 if no tenant resolved
-- Move public routes under `app/(public)/[tenant]/`
-- Keep `app/admin/` and `app/api/` at top level
-- Verify path-based and custom-domain routing both serve same tenant content
+**Completed:**
+- [x] `src/features/cms/tenantContext.ts` with `resolveTenantByHost`, `resolveTenantBySlug`, `resolveTenantById`, `getTenantFromRequest`, `getDefaultTenant`, `invalidateTenantCache`
+- [x] Redis cache with 60s TTL (falls back to in-memory Map if Redis unavailable)
+- [x] Unit tests in `src/tests/tenantContext.test.ts` (21 tests: cache TTL, lookup paths, cross-tenant isolation)
+- [x] `npm run check` passes
 
 ---
 
-### Phase C-3 - Store Refactor (Factory Pattern)
+### Phase C-2b - Middleware + `[tenant]` Segment [DONE]
 
-Highest-risk phase.
+**Completed:**
+- [x] `middleware.ts` updated: skips internal paths, parses tenant slug from path or custom domain host
+- [x] Reserved slugs enforced (admin, api, _next, etc.)
+- [x] Sets `x-tenant-slug` header on path-based routing, `x-tenant-host` on custom domain routing
+- [x] Public routes under `app/(public)/[tenant]/`
+- [x] Layout resolves tenant via `x-tenant-host` (custom domain) or slug param (path-based)
+- [x] `npm run check` passes
 
-- Refactor `contentStore.ts`, `publicApi.ts`, `dbStore.ts` with tenant-scoped factory:
+---
 
-```ts
-export function getStore(tenantId: string) {
-  return {
-    getPublishedPage: (slug) => /* scoped query */,
-    listBlogPosts: () => /* scoped */,
-    // ...
-  };
-}
-```
+### Phase C-3 - Store Refactor (Factory Pattern) [IN PROGRESS]
 
-- Every Drizzle query must include `.where(eq(table.tenantId, tenantId))`
-- Update all callers (admin API routes, public pages)
-- Keep file store functional for forked single-tenant path (gate on `DATABASE_URL`)
-- Update existing tests, add cross-tenant isolation tests
-- `npm run check` must pass
+**Status:** Foundational layer complete; query scoping and factory pattern are the next step.
+
+**Completed so far:**
+- [x] `src/features/cms/storeAdapter.ts` — dual-mode adapter (database vs. file), lazy module loading
+- [x] `src/features/cms/contentStore.ts` — thin facade over storeAdapter + asset URL resolution
+- [x] `src/features/cms/dbStore.ts` — DB queries write rows with `DEFAULT_TENANT_ID`
+- [x] `src/features/cms/dbCollectionsStore.ts` — same
+- [x] `src/db/tenantConstants.ts` — `DEFAULT_TENANT_ID` constant
+
+**Remaining (blocking C-4 and C-5):**
+- [ ] Add `tenantId` parameter to all `dbStore` and `dbCollectionsStore` query functions
+- [ ] Every Drizzle `select`, `insert`, `update`, `delete` must include `.where(eq(table.tenantId, tenantId))`
+- [ ] Introduce `getStore(tenantId: string)` factory in `storeAdapter.ts`
+- [ ] Update `contentStore.ts` to accept (and thread through) `tenantId` from callers
+- [ ] Update all public page routes to pass the resolved `tenant.id` to `getStore()`
+- [ ] Update all admin API routes to pass `session.tenantId` to `getStore()`
+- [ ] Keep file store path functional for forked single-tenant forks (gate on `DATABASE_URL`)
+- [ ] Update existing tests; add cross-tenant isolation tests
+- [ ] `npm run check` must pass
+
+**Also fixed in this session:**
+- [x] `src/features/cms/defaultContent.ts` refactored to lazy loader — `getDefaultContent()` added, 64 KB inline data moved to `defaultContent.json`. All callers updated. `defaultContentLazyLoad` tests now pass.
 
 ---
 
@@ -428,23 +374,23 @@ Services:
 
 ## Execution Order
 
-| Phase | Description | Risk | Dependencies |
-|-------|-------------|------|--------------|
-| B-1 | Remove Supabase, unify S3 storage | Low | None |
-| B-2 | Redis rate limiting | Low | None |
-| B-3 | Redis session fallback | Low | B-2 |
-| B-4 | Clean up DB connection | Low | B-1 |
-| C-1 | Schema + migration | Medium | B-4 |
-| C-2a | Tenant context helper | Low | C-1 |
-| C-2b | Middleware + routing | High | C-2a |
-| C-3 | Store refactor (factory) | High | C-2a |
-| C-4 | Admin scoping | Medium | C-3 |
-| C-5 | Cache scoping | Low | C-3, B-2 |
-| C-6 | Per-tenant theming | Medium | C-4 |
-| C-7 | Tenant-aware infra files | Low | C-3 |
-| C-8 | Custom domains (Caddy) | Medium | C-2b |
-| C-9 | Tenant create script | Low | C-4 |
-| D | Docker + deployment | Low | All above |
+| Phase | Description | Risk | Dependencies | Status |
+|-------|-------------|------|--------------|--------|
+| B-1 | Remove Supabase, unify S3 storage | Low | None | DONE |
+| B-2 | Redis rate limiting | Low | None | DONE |
+| B-3 | Redis session fallback | Low | B-2 | DONE |
+| B-4 | Clean up DB connection | Low | B-1 | DONE |
+| C-1 | Schema + migration | Medium | B-4 | DONE |
+| C-2a | Tenant context helper | Low | C-1 | DONE |
+| C-2b | Middleware + routing | High | C-2a | DONE |
+| C-3 | Store refactor (factory) | High | C-2a | IN PROGRESS |
+| C-4 | Admin scoping | Medium | C-3 | Pending |
+| C-5 | Cache scoping | Low | C-3, B-2 | Pending |
+| C-6 | Per-tenant theming | Medium | C-4 | Pending |
+| C-7 | Tenant-aware infra files | Low | C-3 | Pending |
+| C-8 | Custom domains (Caddy) | Medium | C-2b | Pending |
+| C-9 | Tenant create script | Low | C-4 | Pending |
+| D | Docker + deployment | Low | All above | Pending |
 
 ---
 

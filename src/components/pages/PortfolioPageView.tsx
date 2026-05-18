@@ -7,7 +7,7 @@ import { Reveal } from '@/components/animations/Reveal';
 import { useCursorMode } from '@/components/CustomCursor';
 import type { PortfolioProject } from '@/features/cms/types';
 
-import { formatDateLabel } from './sectionContent';
+import { formatDateLabel } from '@/lib/formatDate';
 
 type PortfolioPageViewProps = {
   projects: PortfolioProject[];

@@ -16,7 +16,7 @@ import {
   uniqueCategorySlug,
   updateDefaultCategorySetting
 } from './collectionShared';
-import { defaultContent } from './defaultContent';
+import { getDefaultContent } from './defaultContent';
 import { mapBlogPostCategorySlugs, syncBlogPostCategoryLinks } from './dbTaxonomy';
 import { normalizeSettings } from './storeShared';
 import type { BlogPost, Category, MediaAsset } from './types';
@@ -193,7 +193,7 @@ async function syncDbCategories() {
   ]);
 
   const existing = categoryRows.map(rowToCategory);
-  const seeded = existing.length > 0 ? existing : defaultContent.categories;
+  const seeded = existing.length > 0 ? existing : getDefaultContent().categories;
   const categories = ensureCategoryCoverage(seeded, posts);
 
   const existingBySlug = new Map(existing.map((category) => [category.slug, category]));
@@ -207,7 +207,7 @@ async function syncDbCategories() {
 
 async function replaceSettingsCategory(previousSlug: string, nextSlug: string | null) {
   const rows = await getDb().select().from(siteSettingsTable).where(eq(siteSettingsTable.id, 'default')).limit(1);
-  const current = normalizeSettings(rows[0]?.payload ?? defaultContent.settings);
+  const current = normalizeSettings(rows[0]?.payload ?? getDefaultContent().settings);
   const nextSettings = nextSlug
     ? updateDefaultCategorySetting(current, previousSlug, nextSlug)
     : clearDefaultCategorySetting(current, previousSlug);
@@ -294,8 +294,8 @@ async function ensureMediaBootstrap() {
   }
 
   await withLegacyMediaFallback(
-    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
-    () => getDb().insert(mediaAssetsTable).values(defaultContent.mediaAssets.map((a) => ({ ...toLegacyMediaRow(a), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
+    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
+    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...toLegacyMediaRow(a), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
   );
 }
 

@@ -3,20 +3,12 @@ import { notFound } from 'next/navigation';
 
 import { MarketingPageRenderer } from '@/components/MarketingPageRenderer';
 import { PreviewModeBanner } from '@/components/PreviewModeBanner';
-import { AboutPageView } from '@/components/pages/AboutPageView';
-import { ContactPageView } from '@/components/pages/ContactPageView';
-import { PartnershipPageView } from '@/components/pages/PartnershipPageView';
-import { ProductHrisPageView } from '@/components/pages/ProductHrisPageView';
-import { ServiceDetailPageView } from '@/components/pages/ServiceDetailPageView';
-import { ServicePageView } from '@/components/pages/ServicePageView';
-import { isReservedPublicSlug, isServiceDetailPageId } from '@/config/site-profile';
+import { isReservedPublicSlug } from '@/config/site-profile';
 import { buildMetadata } from '@/features/cms/seo';
 import {
   getPreviewPageBySlug,
-  getPreviewPortfolioProjects,
   getPublishedPageBySlug,
   getPublishedPages,
-  getPublishedPortfolioProjects,
   getSiteSettings
 } from '@/features/cms/publicApi';
 
@@ -47,25 +39,15 @@ export default async function TenantDynamicPage({ params }: TenantDynamicPagePro
   const { tenant, slug } = await params;
   if (isReservedPublicSlug(slug)) notFound();
   const isPreview = (await draftMode()).isEnabled;
-  const [page, settings] = await Promise.all([
-    isPreview ? getPreviewPageBySlug(slug) : getPublishedPageBySlug(slug),
-    getSiteSettings()
-  ]);
+  const page = await (isPreview ? getPreviewPageBySlug(slug) : getPublishedPageBySlug(slug));
   if (!page) notFound();
 
   const previewBanner = isPreview ? <PreviewModeBanner path={`/${tenant}/${slug}`} /> : null;
 
-  if (page.id === 'about') return <>{previewBanner}<AboutPageView page={page} /></>;
-  if (page.id === 'service') return <>{previewBanner}<ServicePageView page={page} /></>;
-  if (page.id === 'product-hris') return <>{previewBanner}<ProductHrisPageView page={page} /></>;
-  if (page.id === 'partnership') return <>{previewBanner}<PartnershipPageView page={page} /></>;
-  if (isServiceDetailPageId(page.id)) {
-    const portfolioProjects = await (isPreview ? getPreviewPortfolioProjects() : getPublishedPortfolioProjects());
-    return <>{previewBanner}<ServiceDetailPageView page={page} portfolioProjects={portfolioProjects} /></>;
-  }
-  if (page.id === 'contact') {
-    return <>{previewBanner}<ContactPageView page={page} settings={settings} /></>;
-  }
-
-  return <>{previewBanner}<MarketingPageRenderer page={page} /></>;
+  return (
+    <>
+      {previewBanner}
+      <MarketingPageRenderer page={page} />
+    </>
+  );
 }
