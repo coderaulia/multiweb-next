@@ -15,6 +15,7 @@ import {
   getSiteSettings
 } from '@/features/cms/publicApi';
 import { getFallbackServiceHref, getServiceLabel, isServiceDetailPageId } from '@/features/cms/servicePages';
+import { resolveTenantBySlug } from '@/features/cms/tenantContext';
 import type { ServiceDetailPageId } from '@/features/cms/types';
 
 type PortfolioDetailPageProps = {
@@ -27,11 +28,12 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: PortfolioDetailPageProps) {
-  const { slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
   const [settings, project] = await Promise.all([
-    getSiteSettings(),
-    isPreview ? getPreviewPortfolioProjectBySlug(slug) : getPublishedPortfolioProjectBySlug(slug)
+    getSiteSettings(tenant?.id),
+    isPreview ? getPreviewPortfolioProjectBySlug(slug, tenant?.id) : getPublishedPortfolioProjectBySlug(slug, tenant?.id)
   ]);
   if (!project) return { title: 'Not found' };
   return buildMetadata(
@@ -43,13 +45,14 @@ export async function generateMetadata({ params }: PortfolioDetailPageProps) {
 }
 
 export default async function TenantPortfolioDetailPage({ params }: PortfolioDetailPageProps) {
-  const { tenant, slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
   const [settings, project, allProjects, pages] = await Promise.all([
-    getSiteSettings(),
-    isPreview ? getPreviewPortfolioProjectBySlug(slug) : getPublishedPortfolioProjectBySlug(slug),
-    isPreview ? getPreviewPortfolioProjects() : getPublishedPortfolioProjects(),
-    isPreview ? getPreviewPages() : getPublishedPages()
+    getSiteSettings(tenant?.id),
+    isPreview ? getPreviewPortfolioProjectBySlug(slug, tenant?.id) : getPublishedPortfolioProjectBySlug(slug, tenant?.id),
+    isPreview ? getPreviewPortfolioProjects(tenant?.id) : getPublishedPortfolioProjects(tenant?.id),
+    isPreview ? getPreviewPages(tenant?.id) : getPublishedPages(tenant?.id)
   ]);
   if (!project) notFound();
 
@@ -85,7 +88,7 @@ export default async function TenantPortfolioDetailPage({ params }: PortfolioDet
     servicePages.map((page) => [
       page.id,
       {
-        href: page.seo.slug ? `/${tenant}/${page.seo.slug}` : getFallbackServiceHref(page.id),
+        href: page.seo.slug ? `/${tenantSlug}/${page.seo.slug}` : getFallbackServiceHref(page.id),
         label: page.title || page.navLabel || getServiceLabel(page.id)
       }
     ])
@@ -96,7 +99,7 @@ export default async function TenantPortfolioDetailPage({ params }: PortfolioDet
 
   return (
     <>
-      {isPreview ? <PreviewModeBanner path={`/${tenant}/portfolio/${slug}`} /> : null}
+      {isPreview ? <PreviewModeBanner path={`/${tenantSlug}/portfolio/${slug}`} /> : null}
       <SeoJsonLd data={jsonLd} />
       <PortfolioProjectView project={project} related={related} relatedServiceLink={relatedServiceLink} />
     </>

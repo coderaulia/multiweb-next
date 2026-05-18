@@ -6,6 +6,7 @@ import { getMediaUsage } from '@/features/cms/mediaUsage';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { deleteUploadedMedia } from '@/services/mediaStorage';
 import { validateMediaAsset } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -18,7 +19,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const session = auth;
 
   const { id } = await params;
-  const mediaAsset = await getMediaAssetById(id);
+  const mediaAsset = await getMediaAssetById(id, DEFAULT_TENANT_ID);
   if (!mediaAsset) {
     return NextResponse.json({ error: 'Media asset not found' }, { status: 404 });
   }
@@ -32,7 +33,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const existing = await getMediaAssetById(id);
+  const existing = await getMediaAssetById(id, DEFAULT_TENANT_ID);
   if (!existing) {
     return NextResponse.json({ error: 'Media asset not found' }, { status: 404 });
   }
@@ -49,7 +50,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     (payload.storageProvider !== existing.storageProvider ||
       payload.storageKey !== existing.storageKey);
 
-  const mediaAsset = await updateMediaAsset(id, payload);
+  const mediaAsset = await updateMediaAsset(id, payload, DEFAULT_TENANT_ID);
   if (!mediaAsset) {
     return NextResponse.json({ error: 'Media asset not found' }, { status: 404 });
   }
@@ -84,7 +85,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const mediaAsset = await getMediaAssetById(id);
+  const mediaAsset = await getMediaAssetById(id, DEFAULT_TENANT_ID);
   if (!mediaAsset) {
     return NextResponse.json({ error: 'Media asset not found' }, { status: 404 });
   }
@@ -100,7 +101,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     );
   }
 
-  const removed = await deleteMediaAsset(id);
+  const removed = await deleteMediaAsset(id, DEFAULT_TENANT_ID);
   if (!removed) {
     return NextResponse.json({ error: 'Media asset not found' }, { status: 404 });
   }

@@ -1,8 +1,7 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import { blogPostsTable, categoriesTable, mediaAssetsTable, postCategoriesTable, siteSettingsTable } from '@/db/schema';
-import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 import {
   clearDefaultCategorySetting,
@@ -132,17 +131,9 @@ function toLegacyMediaRow(mediaAsset: MediaAsset) {
   };
 }
 
-async function readLegacyMediaAssets() {
-  const result = await getDb().execute<LegacyMediaRow>(sql`
-    select id, title, url, alt_text as "altText", mime_type as "mimeType", width, height, size_bytes as "sizeBytes",
-      storage_provider as "storageProvider", storage_key as "storageKey", created_at as "createdAt", updated_at as "updatedAt"
-    from media_assets
-  `);
-  return result.rows.map(rowToLegacyMediaAsset);
-}
 
-async function readAllPosts(): Promise<BlogPost[]> {
-  const rows = await getDb().select().from(blogPostsTable);
+async function readAllPosts(tenantId: string): Promise<BlogPost[]> {
+  const rows = await getDb().select().from(blogPostsTable).where(eq(blogPostsTable.tenantId, tenantId));
   const tagMap = await mapBlogPostCategorySlugs(rows.map((row) => row.id));
   return rows.map((row) => ({
     id: row.id,
@@ -156,14 +147,11 @@ async function readAllPosts(): Promise<BlogPost[]> {
     status: row.status,
     publishedAt: row.publishedAt,
     updatedAt: row.updatedAt,
-    seo: {
-      ...row.seo,
-      slug: row.slug
-    }
+    seo: { ...row.seo, slug: row.slug }
   }));
 }
 
-async function writePosts(posts: BlogPost[]) {
+async function writePosts(posts: BlogPost[], tenantId: string) {
   for (const post of posts) {
     await getDb()
       .update(blogPostsTable)
@@ -180,16 +168,16 @@ async function writePosts(posts: BlogPost[]) {
         updatedAt: post.updatedAt,
         seo: post.seo
       })
-      .where(eq(blogPostsTable.id, post.id));
+      .where(and(eq(blogPostsTable.id, post.id), eq(blogPostsTable.tenantId, tenantId)));
   }
 
   await syncBlogPostCategoryLinks(posts);
 }
 
-async function syncDbCategories() {
+async function syncDbCategories(tenantId: string) {
   const [categoryRows, posts] = await Promise.all([
-    getDb().select().from(categoriesTable),
-    readAllPosts()
+    getDb().select().from(categoriesTable).where(eq(categoriesTable.tenantId, tenantId)),
+    readAllPosts(tenantId)
   ]);
 
   const existing = categoryRows.map(rowToCategory);
@@ -199,14 +187,16 @@ async function syncDbCategories() {
   const existingBySlug = new Map(existing.map((category) => [category.slug, category]));
   const missing = categories.filter((category) => !existingBySlug.has(category.slug));
   if (missing.length > 0) {
-    await getDb().insert(categoriesTable).values(missing.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing();
+    await getDb().insert(categoriesTable).values(missing.map((c) => ({ ...c, tenantId }))).onConflictDoNothing();
   }
 
   return sortCategories(categories);
 }
 
-async function replaceSettingsCategory(previousSlug: string, nextSlug: string | null) {
-  const rows = await getDb().select().from(siteSettingsTable).where(eq(siteSettingsTable.id, 'default')).limit(1);
+async function replaceSettingsCategory(previousSlug: string, nextSlug: string | null, tenantId: string) {
+  const rows = await getDb().select().from(siteSettingsTable).where(
+    and(eq(siteSettingsTable.id, 'default'), eq(siteSettingsTable.tenantId, tenantId))
+  ).limit(1);
   const current = normalizeSettings(rows[0]?.payload ?? getDefaultContent().settings);
   const nextSettings = nextSlug
     ? updateDefaultCategorySetting(current, previousSlug, nextSlug)
@@ -222,141 +212,138 @@ async function replaceSettingsCategory(previousSlug: string, nextSlug: string | 
     .where(eq(siteSettingsTable.id, 'default'));
 }
 
-export async function getCategories(): Promise<Category[]> {
-  return syncDbCategories();
+export async function getCategories(tenantId: string): Promise<Category[]> {
+  return syncDbCategories(tenantId);
 }
 
-export async function getCategoryById(id: string): Promise<Category | null> {
-  const rows = await getDb().select().from(categoriesTable).where(eq(categoriesTable.id, id)).limit(1);
+export async function getCategoryById(id: string, tenantId: string): Promise<Category | null> {
+  const rows = await getDb().select().from(categoriesTable).where(
+    and(eq(categoriesTable.id, id), eq(categoriesTable.tenantId, tenantId))
+  ).limit(1);
   return rows[0] ? rowToCategory(rows[0]) : null;
 }
 
-export async function createCategory(payload: Category): Promise<Category> {
-  const categories = await syncDbCategories();
+export async function createCategory(payload: Category, tenantId: string): Promise<Category> {
+  const categories = await syncDbCategories(tenantId);
   const slug = uniqueCategorySlug(categories, payload.name, payload.slug);
   const next = normalizeCategoryRecord({ ...payload, slug });
-  await getDb().insert(categoriesTable).values({ ...next, tenantId: DEFAULT_TENANT_ID });
+  await getDb().insert(categoriesTable).values({ ...next, tenantId });
   return next;
 }
 
-export async function updateCategory(id: string, payload: Category): Promise<Category | null> {
-  const categories = await syncDbCategories();
+export async function updateCategory(id: string, payload: Category, tenantId: string): Promise<Category | null> {
+  const categories = await syncDbCategories(tenantId);
   const existing = categories.find((category) => category.id === id);
   if (!existing) return null;
 
   const nextSlug = uniqueCategorySlug(categories, payload.name, payload.slug, id);
-  const next = normalizeCategoryRecord({
-    ...existing,
-    ...payload,
-    id,
-    slug: nextSlug,
-    createdAt: existing.createdAt
-  });
+  const next = normalizeCategoryRecord({ ...existing, ...payload, id, slug: nextSlug, createdAt: existing.createdAt });
 
-  await getDb().update(categoriesTable).set(next).where(eq(categoriesTable.id, id));
+  await getDb().update(categoriesTable).set(next).where(
+    and(eq(categoriesTable.id, id), eq(categoriesTable.tenantId, tenantId))
+  );
 
   if (existing.slug !== next.slug) {
-    const posts = replaceCategorySlugInPosts(await readAllPosts(), existing.slug, next.slug);
-    await writePosts(posts);
-    await replaceSettingsCategory(existing.slug, next.slug);
+    const posts = replaceCategorySlugInPosts(await readAllPosts(tenantId), existing.slug, next.slug);
+    await writePosts(posts, tenantId);
+    await replaceSettingsCategory(existing.slug, next.slug, tenantId);
   }
 
   return next;
 }
 
-export async function deleteCategory(id: string): Promise<boolean> {
-  const existing = await getCategoryById(id);
+export async function deleteCategory(id: string, tenantId: string): Promise<boolean> {
+  const existing = await getCategoryById(id, tenantId);
   if (!existing) return false;
 
-  const posts = removeCategorySlugFromPosts(await readAllPosts(), existing.slug);
-  await writePosts(posts);
+  const posts = removeCategorySlugFromPosts(await readAllPosts(tenantId), existing.slug);
+  await writePosts(posts, tenantId);
   await getDb().delete(postCategoriesTable).where(eq(postCategoriesTable.categoryId, id));
-  await getDb().delete(categoriesTable).where(eq(categoriesTable.id, id));
-  await replaceSettingsCategory(existing.slug, null);
+  await getDb().delete(categoriesTable).where(
+    and(eq(categoriesTable.id, id), eq(categoriesTable.tenantId, tenantId))
+  );
+  await replaceSettingsCategory(existing.slug, null, tenantId);
   return true;
 }
 
-async function ensureMediaBootstrap() {
+async function ensureMediaBootstrap(tenantId: string) {
   const rows = await withLegacyMediaFallback(
-    () => getDb().select().from(mediaAssetsTable).limit(1),
+    () => getDb().select().from(mediaAssetsTable).where(eq(mediaAssetsTable.tenantId, tenantId)).limit(1),
     async () => {
       const result = await getDb().execute<LegacyMediaRow>(sql`
-        select id, title, url, alt_text as "altText", mime_type as "mimeType", width, height, size_bytes as "sizeBytes",
-          storage_provider as "storageProvider", storage_key as "storageKey", created_at as "createdAt", updated_at as "updatedAt"
-        from media_assets
-        limit 1
+        select id from media_assets where tenant_id = ${tenantId} limit 1
       `);
       return result.rows as unknown as typeof mediaAssetsTable.$inferSelect[];
     }
   );
-  if (rows.length > 0) {
-    return;
-  }
+  if (rows.length > 0) return;
 
   await withLegacyMediaFallback(
-    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing(),
-    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...toLegacyMediaRow(a), tenantId: DEFAULT_TENANT_ID }))).onConflictDoNothing()
+    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...a, tenantId }))).onConflictDoNothing(),
+    () => getDb().insert(mediaAssetsTable).values(getDefaultContent().mediaAssets.map((a) => ({ ...toLegacyMediaRow(a), tenantId }))).onConflictDoNothing()
   );
 }
 
-export async function getMediaAssets(): Promise<MediaAsset[]> {
-  await ensureMediaBootstrap();
+export async function getMediaAssets(tenantId: string): Promise<MediaAsset[]> {
+  await ensureMediaBootstrap(tenantId);
   return withLegacyMediaFallback(async () => {
-    const rows = await getDb().select().from(mediaAssetsTable);
+    const rows = await getDb().select().from(mediaAssetsTable).where(eq(mediaAssetsTable.tenantId, tenantId));
     return sortMediaAssets(rows.map(rowToMediaAsset));
-  }, async () => sortMediaAssets(await readLegacyMediaAssets()));
+  }, async () => {
+    const result = await getDb().execute<LegacyMediaRow>(sql`
+      select id, title, url, alt_text as "altText", mime_type as "mimeType", width, height, size_bytes as "sizeBytes",
+        storage_provider as "storageProvider", storage_key as "storageKey", created_at as "createdAt", updated_at as "updatedAt"
+      from media_assets where tenant_id = ${tenantId}
+    `);
+    return sortMediaAssets(result.rows.map(rowToLegacyMediaAsset));
+  });
 }
 
-export async function getMediaAssetById(id: string): Promise<MediaAsset | null> {
-  await ensureMediaBootstrap();
+export async function getMediaAssetById(id: string, tenantId: string): Promise<MediaAsset | null> {
+  await ensureMediaBootstrap(tenantId);
   return withLegacyMediaFallback(async () => {
-    const rows = await getDb().select().from(mediaAssetsTable).where(eq(mediaAssetsTable.id, id)).limit(1);
+    const rows = await getDb().select().from(mediaAssetsTable).where(
+      and(eq(mediaAssetsTable.id, id), eq(mediaAssetsTable.tenantId, tenantId))
+    ).limit(1);
     return rows[0] ? rowToMediaAsset(rows[0]) : null;
   }, async () => {
     const result = await getDb().execute<LegacyMediaRow>(sql`
       select id, title, url, alt_text as "altText", mime_type as "mimeType", width, height, size_bytes as "sizeBytes",
         storage_provider as "storageProvider", storage_key as "storageKey", created_at as "createdAt", updated_at as "updatedAt"
-      from media_assets
-      where id = ${id}
-      limit 1
+      from media_assets where id = ${id} and tenant_id = ${tenantId} limit 1
     `);
     return result.rows[0] ? rowToLegacyMediaAsset(result.rows[0]) : null;
   });
 }
 
-export async function createMediaAsset(payload: MediaAsset): Promise<MediaAsset> {
-  await ensureMediaBootstrap();
+export async function createMediaAsset(payload: MediaAsset, tenantId: string): Promise<MediaAsset> {
+  await ensureMediaBootstrap(tenantId);
   const next = normalizeMediaAssetRecord(payload);
   await withLegacyMediaFallback(
-    () => getDb().insert(mediaAssetsTable).values({ ...next, tenantId: DEFAULT_TENANT_ID }),
-    () => getDb().insert(mediaAssetsTable).values({ ...toLegacyMediaRow(next), tenantId: DEFAULT_TENANT_ID })
+    () => getDb().insert(mediaAssetsTable).values({ ...next, tenantId }),
+    () => getDb().insert(mediaAssetsTable).values({ ...toLegacyMediaRow(next), tenantId })
   );
   return next;
 }
 
-export async function updateMediaAsset(id: string, payload: MediaAsset): Promise<MediaAsset | null> {
-  await ensureMediaBootstrap();
-  const existing = await getMediaAssetById(id);
+export async function updateMediaAsset(id: string, payload: MediaAsset, tenantId: string): Promise<MediaAsset | null> {
+  await ensureMediaBootstrap(tenantId);
+  const existing = await getMediaAssetById(id, tenantId);
   if (!existing) return null;
 
-  const next = normalizeMediaAssetRecord({
-    ...existing,
-    ...payload,
-    id,
-    createdAt: existing.createdAt
-  });
+  const next = normalizeMediaAssetRecord({ ...existing, ...payload, id, createdAt: existing.createdAt });
 
   await withLegacyMediaFallback(
-    () => getDb().update(mediaAssetsTable).set(next).where(eq(mediaAssetsTable.id, id)),
-    () => getDb().update(mediaAssetsTable).set(toLegacyMediaRow(next)).where(eq(mediaAssetsTable.id, id))
+    () => getDb().update(mediaAssetsTable).set(next).where(and(eq(mediaAssetsTable.id, id), eq(mediaAssetsTable.tenantId, tenantId))),
+    () => getDb().update(mediaAssetsTable).set(toLegacyMediaRow(next)).where(and(eq(mediaAssetsTable.id, id), eq(mediaAssetsTable.tenantId, tenantId)))
   );
   return next;
 }
 
-export async function deleteMediaAsset(id: string): Promise<boolean> {
-  await ensureMediaBootstrap();
-  const existing = await getMediaAssetById(id);
+export async function deleteMediaAsset(id: string, tenantId: string): Promise<boolean> {
+  await ensureMediaBootstrap(tenantId);
+  const existing = await getMediaAssetById(id, tenantId);
   if (!existing) return false;
-  await getDb().delete(mediaAssetsTable).where(eq(mediaAssetsTable.id, id));
+  await getDb().delete(mediaAssetsTable).where(and(eq(mediaAssetsTable.id, id), eq(mediaAssetsTable.tenantId, tenantId)));
   return true;
 }

@@ -5,6 +5,7 @@ import { captureContentRevision } from '@/features/cms/contentRevisions';
 import { getPageById, upsertPage } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { isValidPageId, validateLandingPage } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -20,7 +21,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (!isValidPageId(id)) {
     return NextResponse.json({ error: 'Invalid page id' }, { status: 400 });
   }
-  const page = await getPageById(id);
+  const page = await getPageById(id, DEFAULT_TENANT_ID);
   if (!page) {
     return NextResponse.json({ error: 'Page not found' }, { status: 404 });
   }
@@ -33,7 +34,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Invalid page id' }, { status: 400 });
   }
 
-  const existing = await getPageById(id);
+  const existing = await getPageById(id, DEFAULT_TENANT_ID);
   if (!existing) {
     return NextResponse.json({ error: 'Page not found' }, { status: 404 });
   }
@@ -56,7 +57,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     if ('error' in publishAuth) return publishAuth.error;
   }
 
-  const page = await upsertPage(payload);
+  const page = await upsertPage(payload, DEFAULT_TENANT_ID);
   const saveMode = (request.headers.get('x-cms-save-mode') ?? 'manual').trim().toLowerCase();
 
   try {

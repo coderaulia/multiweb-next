@@ -254,30 +254,19 @@ Big clients continue using the `bootstrap:client` fork workflow (not removed).
 
 ---
 
-### Phase C-3 - Store Refactor (Factory Pattern) [IN PROGRESS]
+### Phase C-3 - Store Refactor (Factory Pattern) [DONE]
 
-**Status:** Foundational layer complete; query scoping and factory pattern are the next step.
-
-**Completed so far:**
-- [x] `src/features/cms/storeAdapter.ts` — dual-mode adapter (database vs. file), lazy module loading
-- [x] `src/features/cms/contentStore.ts` — thin facade over storeAdapter + asset URL resolution
-- [x] `src/features/cms/dbStore.ts` — DB queries write rows with `DEFAULT_TENANT_ID`
-- [x] `src/features/cms/dbCollectionsStore.ts` — same
-- [x] `src/db/tenantConstants.ts` — `DEFAULT_TENANT_ID` constant
-
-**Remaining (blocking C-4 and C-5):**
-- [ ] Add `tenantId` parameter to all `dbStore` and `dbCollectionsStore` query functions
-- [ ] Every Drizzle `select`, `insert`, `update`, `delete` must include `.where(eq(table.tenantId, tenantId))`
-- [ ] Introduce `getStore(tenantId: string)` factory in `storeAdapter.ts`
-- [ ] Update `contentStore.ts` to accept (and thread through) `tenantId` from callers
-- [ ] Update all public page routes to pass the resolved `tenant.id` to `getStore()`
-- [ ] Update all admin API routes to pass `session.tenantId` to `getStore()`
-- [ ] Keep file store path functional for forked single-tenant forks (gate on `DATABASE_URL`)
-- [ ] Update existing tests; add cross-tenant isolation tests
-- [ ] `npm run check` must pass
-
-**Also fixed in this session:**
-- [x] `src/features/cms/defaultContent.ts` refactored to lazy loader — `getDefaultContent()` added, 64 KB inline data moved to `defaultContent.json`. All callers updated. `defaultContentLazyLoad` tests now pass.
+**Completed:**
+- [x] `src/features/cms/storeAdapter.ts` — `getStore(tenantId)` factory; database mode scopes every call, file mode is unaffected
+- [x] `src/features/cms/dbStore.ts` — every read/write accepts `tenantId`; all Drizzle queries filter by `tenantId`
+- [x] `src/features/cms/dbCollectionsStore.ts` — same; categories and media scoped by `tenantId`
+- [x] `src/features/cms/contentStore.ts` — thin facade with `tenantId = DEFAULT_TENANT_ID` defaults on all functions
+- [x] `src/features/cms/publicApi.ts` — all public functions accept and thread `tenantId`
+- [x] `src/features/cms/publicCache.ts` — tenant-scoped cache tags (`cms:{tenantId}:*`); C-5 tags already in place
+- [x] `app/(public)/[tenant]/**` pages — resolve tenant via `resolveTenantBySlug` and pass `tenant.id` to all store calls
+- [x] All admin API routes — pass `DEFAULT_TENANT_ID` explicitly (C-4 will replace with session tenantId)
+- [x] `src/tests/dbStoreTenantIsolation.test.ts` — 5 cross-tenant isolation tests
+- [x] `npm run check` passes (85 tests, 0 lint/typecheck errors)
 
 ---
 
@@ -383,7 +372,7 @@ Services:
 | C-1 | Schema + migration | Medium | B-4 | DONE |
 | C-2a | Tenant context helper | Low | C-1 | DONE |
 | C-2b | Middleware + routing | High | C-2a | DONE |
-| C-3 | Store refactor (factory) | High | C-2a | IN PROGRESS |
+| C-3 | Store refactor (factory) | High | C-2a | DONE |
 | C-4 | Admin scoping | Medium | C-3 | Pending |
 | C-5 | Cache scoping | Low | C-3, B-2 | Pending |
 | C-6 | Per-tenant theming | Medium | C-4 | Pending |

@@ -1,4 +1,4 @@
-﻿import { eq, sql } from 'drizzle-orm';
+﻿import { and, eq, sql } from 'drizzle-orm';
 
 import { getDb } from '@/db/client';
 import {
@@ -315,30 +315,47 @@ function rowToLegacyPortfolio(row: LegacyPortfolioRow, tags = row.tags): Portfol
   };
 }
 
-async function readLegacyPages() {
+// ---------------------------------------------------------------------------
+// Bootstrap helper — only runs for the default tenant on first launch
+// ---------------------------------------------------------------------------
+
+async function ensureDbBootstrapIfDefault(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    await ensureDbBootstrap();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy SQL helpers (used when certain columns are not yet in the schema)
+// ---------------------------------------------------------------------------
+
+async function readLegacyPages(tenantId: string) {
   const result = await getDb().execute<LegacyPageRow>(sql`
     select id, title, nav_label as "navLabel", slug, published, seo, sections, home_blocks as "homeBlocks", updated_at as "updatedAt"
     from pages
+    where tenant_id = ${tenantId}
   `);
   return result.rows.map(rowToLegacyPage);
 }
 
-async function readLegacyPosts() {
+async function readLegacyPosts(tenantId: string) {
   const result = await getDb().execute<LegacyPostRow>(sql`
     select id, title, slug, excerpt, content, author, tags, cover_image as "coverImage", status, published_at as "publishedAt", updated_at as "updatedAt", seo
     from blog_posts
+    where tenant_id = ${tenantId}
   `);
   const tagMap = await mapBlogPostCategorySlugs(result.rows.map((row) => row.id));
   return result.rows.map((row) => rowToLegacyPost(row, tagMap.get(row.id) ?? row.tags));
 }
 
-async function readLegacyPortfolioProjects() {
+async function readLegacyPortfolioProjects(tenantId: string) {
   return withPortfolioTableFallback(async () => {
     const result = await getDb().execute<LegacyPortfolioRow>(sql`
       select id, title, slug, summary, challenge, solution, outcome, client_name as "clientName", service_type as "serviceType",
         industry, project_url as "projectUrl", cover_image as "coverImage", gallery, tags, featured, status, sort_order as "sortOrder",
         published_at as "publishedAt", updated_at as "updatedAt", seo
       from portfolio_projects
+      where tenant_id = ${tenantId}
     `);
     const tagMap = await mapPortfolioProjectTags(result.rows.map((row) => row.id));
     return result.rows.map((row) => rowToLegacyPortfolio(row, tagMap.get(row.id) ?? row.tags));
@@ -629,7 +646,7 @@ async function ensureDbBootstrap() {
 
     const seededPosts = await withLegacyScheduleFallback(
       () => db.select().from(blogPostsTable).then((rows) => rows.map((row) => rowToPost(row))),
-      () => readLegacyPosts()
+      () => readLegacyPosts(DEFAULT_TENANT_ID)
     );
     await syncBlogPostCategoryLinks(seededPosts);
 
@@ -642,7 +659,7 @@ async function ensureDbBootstrap() {
               const rows = await db.select(portfolioSelectShape(includeRelations)).from(portfolioProjectsTable);
               return rows.map((row) => rowToPortfolio(row as PortfolioRowShape));
             },
-            () => readLegacyPortfolioProjects()
+            () => readLegacyPortfolioProjects(DEFAULT_TENANT_ID)
           ),
         async () => {
           const rows = await db.select(portfolioSelectShape(false, false)).from(portfolioProjectsTable);
@@ -662,52 +679,52 @@ async function ensureDbBootstrap() {
   }
 }
 
-async function loadAllPages() {
+async function loadAllPages(tenantId: string) {
   return withLegacyScheduleFallback(async () => {
-    await ensureDbBootstrap();
-    const rows = await getDb().select().from(pagesTable);
+    await ensureDbBootstrapIfDefault(tenantId);
+    const rows = await getDb().select().from(pagesTable).where(eq(pagesTable.tenantId, tenantId));
     return rows.map(rowToPage);
   }, async () => {
-    await ensureDbBootstrap();
-    return readLegacyPages();
+    await ensureDbBootstrapIfDefault(tenantId);
+    return readLegacyPages(tenantId);
   });
 }
 
-async function loadAllPosts() {
+async function loadAllPosts(tenantId: string) {
   return withLegacyScheduleFallback(async () => {
-    await ensureDbBootstrap();
-    const rows = await getDb().select().from(blogPostsTable);
+    await ensureDbBootstrapIfDefault(tenantId);
+    const rows = await getDb().select().from(blogPostsTable).where(eq(blogPostsTable.tenantId, tenantId));
     const tagMap = await mapBlogPostCategorySlugs(rows.map((row) => row.id));
     return rows.map((row) => rowToPost(row, tagMap.get(row.id) ?? row.tags));
   }, async () => {
-    await ensureDbBootstrap();
-    return readLegacyPosts();
+    await ensureDbBootstrapIfDefault(tenantId);
+    return readLegacyPosts(tenantId);
   });
 }
 
-async function loadAllPortfolioProjects() {
+async function loadAllPortfolioProjects(tenantId: string) {
   return withPortfolioTableFallback(async () => {
     return withPortfolioRelationsFallback(async () => {
       return withLegacyScheduleFallback(async () => {
-        await ensureDbBootstrap();
+        await ensureDbBootstrapIfDefault(tenantId);
         const includeRelations = await supportsPortfolioRelationsColumn();
-        const rows = await getDb().select(portfolioSelectShape(includeRelations)).from(portfolioProjectsTable);
+        const rows = await getDb().select(portfolioSelectShape(includeRelations)).from(portfolioProjectsTable).where(eq(portfolioProjectsTable.tenantId, tenantId));
         const tagMap = await mapPortfolioProjectTags(rows.map((row) => row.id));
         return rows.map((row) => rowToPortfolio(row as PortfolioRowShape, tagMap.get(row.id) ?? row.tags));
       }, async () => {
-        await ensureDbBootstrap();
-        return readLegacyPortfolioProjects();
+        await ensureDbBootstrapIfDefault(tenantId);
+        return readLegacyPortfolioProjects(tenantId);
       });
     }, async () => {
-      await ensureDbBootstrap();
-      const rows = await getDb().select(portfolioSelectShape(false, false)).from(portfolioProjectsTable);
+      await ensureDbBootstrapIfDefault(tenantId);
+      const rows = await getDb().select(portfolioSelectShape(false, false)).from(portfolioProjectsTable).where(eq(portfolioProjectsTable.tenantId, tenantId));
       const tagMap = await mapPortfolioProjectTags(rows.map((row) => row.id));
       return rows.map((row) => rowToPortfolio(row as PortfolioRowShape, tagMap.get(row.id) ?? row.tags));
     });
   }, []);
 }
 
-export async function replaceAllCmsContent(content: CmsContent) {
+export async function replaceAllCmsContent(content: CmsContent, tenantId: string = DEFAULT_TENANT_ID) {
   const db = getDb();
   const normalized = mergeWithDefaults(content);
 
@@ -728,30 +745,30 @@ export async function replaceAllCmsContent(content: CmsContent) {
 
     await tx.insert(siteSettingsTable).values({
       id: 'default',
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId,
       payload: normalizeSettings(normalized.settings),
       updatedAt: nowIso()
     });
 
-    await tx.insert(pagesTable).values(Object.values(normalized.pages).map((p) => ({ ...pageToRow(p), tenantId: DEFAULT_TENANT_ID })));
-    await tx.insert(categoriesTable).values(normalized.categories.map((c) => ({ ...c, tenantId: DEFAULT_TENANT_ID })));
-    await tx.insert(blogPostsTable).values(normalized.blogPosts.map((p) => ({ ...postToRow(p), tenantId: DEFAULT_TENANT_ID })));
+    await tx.insert(pagesTable).values(Object.values(normalized.pages).map((p) => ({ ...pageToRow(p), tenantId })));
+    await tx.insert(categoriesTable).values(normalized.categories.map((c) => ({ ...c, tenantId })));
+    await tx.insert(blogPostsTable).values(normalized.blogPosts.map((p) => ({ ...postToRow(p), tenantId })));
     await withPortfolioTableFallback(async () => {
       await withPortfolioRelationsFallback(
         async () => {
           const includeRelations = await supportsPortfolioRelationsColumn();
           await tx
             .insert(portfolioProjectsTable)
-            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, includeRelations), tenantId: DEFAULT_TENANT_ID })));
+            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, includeRelations), tenantId })));
         },
         async () => {
           await tx
             .insert(portfolioProjectsTable)
-            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })));
+            .values(normalized.portfolioProjects.map((project) => ({ ...portfolioWriteRow(project, false), tenantId })));
         }
       );
     }, undefined);
-    await tx.insert(mediaAssetsTable).values(normalized.mediaAssets.map((a) => ({ ...a, tenantId: DEFAULT_TENANT_ID })));
+    await tx.insert(mediaAssetsTable).values(normalized.mediaAssets.map((a) => ({ ...a, tenantId })));
   });
 
   await syncBlogPostCategoryLinks(normalized.blogPosts);
@@ -760,20 +777,22 @@ export async function replaceAllCmsContent(content: CmsContent) {
   }, undefined);
 }
 
-export async function getSettings() {
-  await ensureDbBootstrap();
-  const row = await getDb().select().from(siteSettingsTable).where(eq(siteSettingsTable.id, 'default')).limit(1);
+export async function getSettings(tenantId: string) {
+  await ensureDbBootstrapIfDefault(tenantId);
+  const row = await getDb().select().from(siteSettingsTable).where(
+    and(eq(siteSettingsTable.id, 'default'), eq(siteSettingsTable.tenantId, tenantId))
+  ).limit(1);
   return normalizeSettings(row[0]?.payload ?? getDefaultContent().settings);
 }
 
-export async function updateSettings(settings: SiteSettings): Promise<SiteSettings> {
-  await ensureDbBootstrap();
+export async function updateSettings(settings: SiteSettings, tenantId: string): Promise<SiteSettings> {
+  await ensureDbBootstrapIfDefault(tenantId);
   const next = normalizeSettings(settings);
   await getDb()
     .insert(siteSettingsTable)
     .values({
       id: 'default',
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId,
       payload: next,
       updatedAt: nowIso()
     })
@@ -788,8 +807,8 @@ export async function updateSettings(settings: SiteSettings): Promise<SiteSettin
   return next;
 }
 
-export async function getPages() {
-  const pages = await loadAllPages();
+export async function getPages(tenantId: string) {
+  const pages = await loadAllPages(tenantId);
   const next = { ...structuredClone(getDefaultContent().pages) };
   for (const page of pages) {
     next[page.id] = page;
@@ -797,30 +816,32 @@ export async function getPages() {
   return next;
 }
 
-export async function getPageById(id: PageId): Promise<LandingPage | null> {
+export async function getPageById(id: PageId, tenantId: string): Promise<LandingPage | null> {
   return withLegacyScheduleFallback(async () => {
-    await ensureDbBootstrap();
-    const row = await getDb().select().from(pagesTable).where(eq(pagesTable.id, id)).limit(1);
+    await ensureDbBootstrapIfDefault(tenantId);
+    const row = await getDb().select().from(pagesTable).where(
+      and(eq(pagesTable.id, id), eq(pagesTable.tenantId, tenantId))
+    ).limit(1);
     return row[0] ? rowToPage(row[0]) : null;
   }, async () => {
-    await ensureDbBootstrap();
+    await ensureDbBootstrapIfDefault(tenantId);
     const result = await getDb().execute<LegacyPageRow>(sql`
       select id, title, nav_label as "navLabel", slug, published, seo, sections, home_blocks as "homeBlocks", updated_at as "updatedAt"
       from pages
-      where id = ${id}
+      where id = ${id} and tenant_id = ${tenantId}
       limit 1
     `);
     return result.rows[0] ? rowToLegacyPage(result.rows[0]) : null;
   });
 }
 
-export async function upsertPage(page: LandingPage): Promise<LandingPage> {
-  const pages = await loadAllPages();
+export async function upsertPage(page: LandingPage, tenantId: string): Promise<LandingPage> {
+  const pages = await loadAllPages(tenantId);
   const nextPage = normalizePageForWrite(page, pages);
 
   await getDb()
     .insert(pagesTable)
-    .values({ ...pageToRow(nextPage), tenantId: DEFAULT_TENANT_ID })
+    .values({ ...pageToRow(nextPage), tenantId })
     .onConflictDoUpdate({
       target: pagesTable.id,
       set: pageToRow(nextPage)
@@ -829,14 +850,14 @@ export async function upsertPage(page: LandingPage): Promise<LandingPage> {
   return nextPage;
 }
 
-export async function getBlogPosts(includeDrafts = false): Promise<BlogPost[]> {
-  const posts = await loadAllPosts();
+export async function getBlogPosts(includeDrafts = false, tenantId: string = DEFAULT_TENANT_ID): Promise<BlogPost[]> {
+  const posts = await loadAllPosts(tenantId);
   const filtered = includeDrafts ? posts : posts.filter((post) => isBlogPostLive(post));
   return filtered.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
-export async function queryBlogPosts(input: BlogQueryInput) {
-  const posts = await loadAllPosts();
+export async function queryBlogPosts(input: BlogQueryInput, tenantId: string = DEFAULT_TENANT_ID) {
+  const posts = await loadAllPosts(tenantId);
   const query = (input.q ?? '').trim().toLowerCase();
   const category = (input.category ?? '').trim().toLowerCase();
   const status =
@@ -893,19 +914,21 @@ export async function queryBlogPosts(input: BlogQueryInput) {
   };
 }
 
-export async function getBlogPostById(id: string): Promise<BlogPost | null> {
+export async function getBlogPostById(id: string, tenantId: string = DEFAULT_TENANT_ID): Promise<BlogPost | null> {
   return withLegacyScheduleFallback(async () => {
-    await ensureDbBootstrap();
-    const row = await getDb().select().from(blogPostsTable).where(eq(blogPostsTable.id, id)).limit(1);
+    await ensureDbBootstrapIfDefault(tenantId);
+    const row = await getDb().select().from(blogPostsTable).where(
+      and(eq(blogPostsTable.id, id), eq(blogPostsTable.tenantId, tenantId))
+    ).limit(1);
     if (!row[0]) return null;
     const tagMap = await mapBlogPostCategorySlugs([id]);
     return rowToPost(row[0], tagMap.get(id) ?? row[0].tags);
   }, async () => {
-    await ensureDbBootstrap();
+    await ensureDbBootstrapIfDefault(tenantId);
     const result = await getDb().execute<LegacyPostRow>(sql`
       select id, title, slug, excerpt, content, author, tags, cover_image as "coverImage", status, published_at as "publishedAt", updated_at as "updatedAt", seo
       from blog_posts
-      where id = ${id}
+      where id = ${id} and tenant_id = ${tenantId}
       limit 1
     `);
     if (!result.rows[0]) return null;
@@ -914,21 +937,23 @@ export async function getBlogPostById(id: string): Promise<BlogPost | null> {
   });
 }
 
-export async function getBlogPostBySlug(slug: string): Promise<BlogPost | null> {
+export async function getBlogPostBySlug(slug: string, tenantId: string = DEFAULT_TENANT_ID): Promise<BlogPost | null> {
   const normalized = normalizeSlug(slug);
   return withLegacyScheduleFallback(async () => {
-    await ensureDbBootstrap();
-    const row = await getDb().select().from(blogPostsTable).where(eq(blogPostsTable.slug, normalized)).limit(1);
+    await ensureDbBootstrapIfDefault(tenantId);
+    const row = await getDb().select().from(blogPostsTable).where(
+      and(eq(blogPostsTable.slug, normalized), eq(blogPostsTable.tenantId, tenantId))
+    ).limit(1);
     if (!row[0]) return null;
     if (!isBlogPostLive(rowToPost(row[0]))) return null;
     const tagMap = await mapBlogPostCategorySlugs([row[0].id]);
     return rowToPost(row[0], tagMap.get(row[0].id) ?? row[0].tags);
   }, async () => {
-    await ensureDbBootstrap();
+    await ensureDbBootstrapIfDefault(tenantId);
     const result = await getDb().execute<LegacyPostRow>(sql`
       select id, title, slug, excerpt, content, author, tags, cover_image as "coverImage", status, published_at as "publishedAt", updated_at as "updatedAt", seo
       from blog_posts
-      where slug = ${normalized}
+      where slug = ${normalized} and tenant_id = ${tenantId}
       limit 1
     `);
     if (!result.rows[0]) return null;
@@ -937,11 +962,11 @@ export async function getBlogPostBySlug(slug: string): Promise<BlogPost | null> 
   });
 }
 
-export async function createBlogPost(payload?: Partial<BlogPost>): Promise<BlogPost> {
-  const posts = await loadAllPosts();
-  const settings = await getSettings();
+export async function createBlogPost(payload: Partial<BlogPost> | undefined, tenantId: string): Promise<BlogPost> {
+  const posts = await loadAllPosts(tenantId);
+  const settings = await getSettings(tenantId);
   const id = crypto.randomUUID();
-  const title = payload?.title?.trim() || 'Untitled post';
+  const title = (payload?.title ?? '').trim() || 'Untitled post';
   const slug = uniquePostSlug(posts, title, payload?.seo?.slug);
   const writing = settings.writing;
   const requestedStatus = payload?.status;
@@ -951,13 +976,11 @@ export async function createBlogPost(payload?: Partial<BlogPost>): Promise<BlogP
   const post: BlogPost = {
     id,
     title,
-    excerpt: payload?.excerpt?.trim() || '',
+    excerpt: (payload?.excerpt ?? '').trim(),
     content: payload?.content || '',
-    author: payload?.author?.trim() || writing.defaultPostAuthor || 'Admin',
+    author: (payload?.author ?? '').trim() || writing.defaultPostAuthor || 'Admin',
     categoryId: payload?.categoryId ?? null,
-    tags:
-      payload?.tags ??
-      (writing.defaultPostCategory ? [writing.defaultPostCategory.toLowerCase()] : []),
+    tags: payload?.tags ?? (writing.defaultPostCategory ? [writing.defaultPostCategory.toLowerCase()] : []),
     coverImage: payload?.coverImage || '',
     status,
     publishedAt: status === 'published' ? nowIso() : null,
@@ -975,46 +998,44 @@ export async function createBlogPost(payload?: Partial<BlogPost>): Promise<BlogP
     }
   };
 
-  await getDb().insert(blogPostsTable).values({ ...postToRow(post), tenantId: DEFAULT_TENANT_ID });
+  await getDb().insert(blogPostsTable).values({ ...postToRow(post), tenantId });
   await syncBlogPostCategoryLinks([post]);
   return post;
 }
 
-export async function updateBlogPost(id: string, payload: BlogPost): Promise<BlogPost | null> {
-  const existing = await getBlogPostById(id);
+export async function updateBlogPost(id: string, payload: BlogPost, tenantId: string): Promise<BlogPost | null> {
+  const existing = await getBlogPostById(id, tenantId);
   if (!existing) return null;
 
-  const posts = await loadAllPosts();
+  const posts = await loadAllPosts(tenantId);
   const slug = uniquePostSlug(posts, payload.title, payload.seo.slug, id);
   const next: BlogPost = {
     ...payload,
     id,
-    seo: {
-      ...payload.seo,
-      slug
-    },
-    publishedAt:
-      payload.status === 'published'
-        ? existing.publishedAt ?? nowIso()
-        : payload.publishedAt ?? null,
+    seo: { ...payload.seo, slug },
+    publishedAt: payload.status === 'published' ? existing.publishedAt ?? nowIso() : payload.publishedAt ?? null,
     updatedAt: nowIso()
   };
 
-  await getDb().update(blogPostsTable).set(postToRow(next)).where(eq(blogPostsTable.id, id));
+  await getDb().update(blogPostsTable).set(postToRow(next)).where(
+    and(eq(blogPostsTable.id, id), eq(blogPostsTable.tenantId, tenantId))
+  );
   await syncBlogPostCategoryLinks([next]);
   return next;
 }
 
-export async function deleteBlogPost(id: string): Promise<boolean> {
-  const existing = await getBlogPostById(id);
+export async function deleteBlogPost(id: string, tenantId: string): Promise<boolean> {
+  const existing = await getBlogPostById(id, tenantId);
   if (!existing) return false;
   await deleteBlogPostCategoryLinks([id]);
-  await getDb().delete(blogPostsTable).where(eq(blogPostsTable.id, id));
+  await getDb().delete(blogPostsTable).where(
+    and(eq(blogPostsTable.id, id), eq(blogPostsTable.tenantId, tenantId))
+  );
   return true;
 }
 
-export async function setPostStatus(id: string, status: 'draft' | 'published'): Promise<BlogPost | null> {
-  const existing = await getBlogPostById(id);
+export async function setPostStatus(id: string, status: 'draft' | 'published', tenantId: string): Promise<BlogPost | null> {
+  const existing = await getBlogPostById(id, tenantId);
   if (!existing) return null;
 
   const next: BlogPost = {
@@ -1026,12 +1047,14 @@ export async function setPostStatus(id: string, status: 'draft' | 'published'): 
     updatedAt: nowIso()
   };
 
-  await getDb().update(blogPostsTable).set(postToRow(next)).where(eq(blogPostsTable.id, id));
+  await getDb().update(blogPostsTable).set(postToRow(next)).where(
+    and(eq(blogPostsTable.id, id), eq(blogPostsTable.tenantId, tenantId))
+  );
   return next;
 }
 
-export async function getPortfolioProjects(includeDrafts = false): Promise<PortfolioProject[]> {
-  const projects = await loadAllPortfolioProjects();
+export async function getPortfolioProjects(includeDrafts = false, tenantId: string = DEFAULT_TENANT_ID): Promise<PortfolioProject[]> {
+  const projects = await loadAllPortfolioProjects(tenantId);
   const filtered = includeDrafts ? projects : projects.filter((project) => isPortfolioProjectLive(project));
 
   return filtered.sort((a, b) => {
@@ -1041,8 +1064,8 @@ export async function getPortfolioProjects(includeDrafts = false): Promise<Portf
   });
 }
 
-export async function queryPortfolioProjects(input: PortfolioQueryInput) {
-  const projects = await loadAllPortfolioProjects();
+export async function queryPortfolioProjects(input: PortfolioQueryInput, tenantId: string = DEFAULT_TENANT_ID) {
+  const projects = await loadAllPortfolioProjects(tenantId);
   const query = (input.q ?? '').trim().toLowerCase();
   const tag = (input.tag ?? '').trim().toLowerCase();
   const status =
@@ -1110,28 +1133,28 @@ export async function queryPortfolioProjects(input: PortfolioQueryInput) {
   };
 }
 
-export async function getPortfolioProjectById(id: string): Promise<PortfolioProject | null> {
+export async function getPortfolioProjectById(id: string, tenantId: string = DEFAULT_TENANT_ID): Promise<PortfolioProject | null> {
   return withPortfolioTableFallback(async () => {
     return withPortfolioRelationsFallback(async () => {
       return withLegacyScheduleFallback(async () => {
-        await ensureDbBootstrap();
+        await ensureDbBootstrapIfDefault(tenantId);
         const includeRelations = await supportsPortfolioRelationsColumn();
         const row = await getDb()
           .select(portfolioSelectShape(includeRelations))
           .from(portfolioProjectsTable)
-          .where(eq(portfolioProjectsTable.id, id))
+          .where(and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId)))
           .limit(1);
         if (!row[0]) return null;
         const tagMap = await mapPortfolioProjectTags([id]);
         return rowToPortfolio(row[0] as PortfolioRowShape, tagMap.get(id) ?? row[0].tags);
       }, async () => {
-        await ensureDbBootstrap();
+        await ensureDbBootstrapIfDefault(tenantId);
         const result = await getDb().execute<LegacyPortfolioRow>(sql`
           select id, title, slug, summary, challenge, solution, outcome, client_name as "clientName", service_type as "serviceType",
             industry, project_url as "projectUrl", cover_image as "coverImage", gallery, tags, featured, status, sort_order as "sortOrder",
             published_at as "publishedAt", updated_at as "updatedAt", seo
           from portfolio_projects
-          where id = ${id}
+          where id = ${id} and tenant_id = ${tenantId}
           limit 1
         `);
         if (!result.rows[0]) return null;
@@ -1139,11 +1162,11 @@ export async function getPortfolioProjectById(id: string): Promise<PortfolioProj
         return rowToLegacyPortfolio(result.rows[0], tagMap.get(id) ?? result.rows[0].tags);
       });
     }, async () => {
-      await ensureDbBootstrap();
+      await ensureDbBootstrapIfDefault(tenantId);
       const row = await getDb()
         .select(portfolioSelectShape(false, false))
         .from(portfolioProjectsTable)
-        .where(eq(portfolioProjectsTable.id, id))
+        .where(and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId)))
         .limit(1);
       if (!row[0]) return null;
       const tagMap = await mapPortfolioProjectTags([id]);
@@ -1152,30 +1175,30 @@ export async function getPortfolioProjectById(id: string): Promise<PortfolioProj
   }, null);
 }
 
-export async function getPortfolioProjectBySlug(slug: string): Promise<PortfolioProject | null> {
+export async function getPortfolioProjectBySlug(slug: string, tenantId: string = DEFAULT_TENANT_ID): Promise<PortfolioProject | null> {
+  const normalized = normalizeSlug(slug);
   return withPortfolioTableFallback(async () => {
-    const normalized = normalizeSlug(slug);
     return withPortfolioRelationsFallback(async () => {
       return withLegacyScheduleFallback(async () => {
-        await ensureDbBootstrap();
+        await ensureDbBootstrapIfDefault(tenantId);
         const includeRelations = await supportsPortfolioRelationsColumn();
         const row = await getDb()
           .select(portfolioSelectShape(includeRelations))
           .from(portfolioProjectsTable)
-          .where(eq(portfolioProjectsTable.slug, normalized))
+          .where(and(eq(portfolioProjectsTable.slug, normalized), eq(portfolioProjectsTable.tenantId, tenantId)))
           .limit(1);
         if (!row[0]) return null;
         if (!isPortfolioProjectLive(rowToPortfolio(row[0] as PortfolioRowShape))) return null;
         const tagMap = await mapPortfolioProjectTags([row[0].id]);
         return rowToPortfolio(row[0] as PortfolioRowShape, tagMap.get(row[0].id) ?? row[0].tags);
       }, async () => {
-        await ensureDbBootstrap();
+        await ensureDbBootstrapIfDefault(tenantId);
         const result = await getDb().execute<LegacyPortfolioRow>(sql`
           select id, title, slug, summary, challenge, solution, outcome, client_name as "clientName", service_type as "serviceType",
             industry, project_url as "projectUrl", cover_image as "coverImage", gallery, tags, featured, status, sort_order as "sortOrder",
             published_at as "publishedAt", updated_at as "updatedAt", seo
           from portfolio_projects
-          where slug = ${normalized}
+          where slug = ${normalized} and tenant_id = ${tenantId}
           limit 1
         `);
         if (!result.rows[0]) return null;
@@ -1183,11 +1206,11 @@ export async function getPortfolioProjectBySlug(slug: string): Promise<Portfolio
         return rowToLegacyPortfolio(result.rows[0], tagMap.get(result.rows[0].id) ?? result.rows[0].tags);
       });
     }, async () => {
-      await ensureDbBootstrap();
+      await ensureDbBootstrapIfDefault(tenantId);
       const row = await getDb()
         .select(portfolioSelectShape(false, false))
         .from(portfolioProjectsTable)
-        .where(eq(portfolioProjectsTable.slug, normalized))
+        .where(and(eq(portfolioProjectsTable.slug, normalized), eq(portfolioProjectsTable.tenantId, tenantId)))
         .limit(1);
       if (!row[0]) return null;
       if (!isPortfolioProjectLive(rowToPortfolio(row[0] as PortfolioRowShape))) return null;
@@ -1198,26 +1221,26 @@ export async function getPortfolioProjectBySlug(slug: string): Promise<Portfolio
 }
 
 export async function createPortfolioProject(
-  payload?: Partial<PortfolioProject>
+  payload: Partial<PortfolioProject> | undefined,
+  tenantId: string
 ): Promise<PortfolioProject> {
-  const projects = await loadAllPortfolioProjects();
+  const projects = await loadAllPortfolioProjects(tenantId);
   const id = crypto.randomUUID();
-  const title = payload?.title?.trim() || 'Untitled project';
+  const title = (payload?.title ?? '').trim() || 'Untitled project';
   const slug = uniquePortfolioSlug(projects, title, payload?.seo?.slug);
-  const requestedStatus = payload?.status;
-  const status = requestedStatus ?? 'draft';
+  const status = payload?.status ?? 'draft';
   const maxSort = projects.reduce((acc, project) => Math.max(acc, project.sortOrder), 0);
 
   const project: PortfolioProject = {
     id,
     title,
-    summary: payload?.summary?.trim() || '',
+    summary: (payload?.summary ?? '').trim(),
     challenge: payload?.challenge || '',
     solution: payload?.solution || '',
     outcome: payload?.outcome || '',
-    clientName: payload?.clientName?.trim() || '',
-    serviceType: payload?.serviceType?.trim() || '',
-    industry: payload?.industry?.trim() || '',
+    clientName: (payload?.clientName ?? '').trim(),
+    serviceType: (payload?.serviceType ?? '').trim(),
+    industry: (payload?.industry ?? '').trim(),
     projectUrl: payload?.projectUrl || '',
     relatedServicePageIds: payload?.relatedServicePageIds ?? [],
     coverImage: payload?.coverImage || '',
@@ -1243,8 +1266,8 @@ export async function createPortfolioProject(
 
   const includeRelations = await supportsPortfolioRelationsColumn();
   await withPortfolioRelationsFallback(
-    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, includeRelations), tenantId: DEFAULT_TENANT_ID }),
-    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, false), tenantId: DEFAULT_TENANT_ID })
+    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, includeRelations), tenantId }),
+    () => getDb().insert(portfolioProjectsTable).values({ ...portfolioWriteRow(project, false), tenantId })
   );
   await withPortfolioTableFallback(async () => {
     await syncPortfolioProjectTagLinks([project]);
@@ -1254,40 +1277,31 @@ export async function createPortfolioProject(
 
 export async function updatePortfolioProject(
   id: string,
-  payload: PortfolioProject
+  payload: PortfolioProject,
+  tenantId: string
 ): Promise<PortfolioProject | null> {
-  const existing = await getPortfolioProjectById(id);
+  const existing = await getPortfolioProjectById(id, tenantId);
   if (!existing) return null;
 
-  const projects = await loadAllPortfolioProjects();
+  const projects = await loadAllPortfolioProjects(tenantId);
   const slug = uniquePortfolioSlug(projects, payload.title, payload.seo.slug, id);
 
   const next: PortfolioProject = {
     ...payload,
     id,
-    seo: {
-      ...payload.seo,
-      slug
-    },
-    publishedAt:
-      payload.status === 'published'
-        ? existing.publishedAt ?? nowIso()
-        : payload.publishedAt ?? null,
+    seo: { ...payload.seo, slug },
+    publishedAt: payload.status === 'published' ? existing.publishedAt ?? nowIso() : payload.publishedAt ?? null,
     updatedAt: nowIso()
   };
 
   const includeRelations = await supportsPortfolioRelationsColumn();
   await withPortfolioRelationsFallback(
-    () =>
-      getDb()
-        .update(portfolioProjectsTable)
-        .set(portfolioWriteRow(next, includeRelations))
-        .where(eq(portfolioProjectsTable.id, id)),
-    () =>
-      getDb()
-        .update(portfolioProjectsTable)
-        .set(portfolioWriteRow(next, false))
-        .where(eq(portfolioProjectsTable.id, id))
+    () => getDb().update(portfolioProjectsTable).set(portfolioWriteRow(next, includeRelations)).where(
+      and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId))
+    ),
+    () => getDb().update(portfolioProjectsTable).set(portfolioWriteRow(next, false)).where(
+      and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId))
+    )
   );
   await withPortfolioTableFallback(async () => {
     await syncPortfolioProjectTagLinks([next]);
@@ -1296,22 +1310,25 @@ export async function updatePortfolioProject(
   return next;
 }
 
-export async function deletePortfolioProject(id: string): Promise<boolean> {
-  const existing = await getPortfolioProjectById(id);
+export async function deletePortfolioProject(id: string, tenantId: string): Promise<boolean> {
+  const existing = await getPortfolioProjectById(id, tenantId);
   if (!existing) return false;
 
   await withPortfolioTableFallback(async () => {
     await deletePortfolioProjectTagLinks([id]);
   }, undefined);
-  await getDb().delete(portfolioProjectsTable).where(eq(portfolioProjectsTable.id, id));
+  await getDb().delete(portfolioProjectsTable).where(
+    and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId))
+  );
   return true;
 }
 
 export async function setPortfolioProjectStatus(
   id: string,
-  status: 'draft' | 'published'
+  status: 'draft' | 'published',
+  tenantId: string
 ): Promise<PortfolioProject | null> {
-  const existing = await getPortfolioProjectById(id);
+  const existing = await getPortfolioProjectById(id, tenantId);
   if (!existing) return null;
 
   const next: PortfolioProject = {
@@ -1325,23 +1342,20 @@ export async function setPortfolioProjectStatus(
 
   const includeRelations = await supportsPortfolioRelationsColumn();
   await withPortfolioRelationsFallback(
-    () =>
-      getDb()
-        .update(portfolioProjectsTable)
-        .set(portfolioWriteRow(next, includeRelations))
-        .where(eq(portfolioProjectsTable.id, id)),
-    () =>
-      getDb()
-        .update(portfolioProjectsTable)
-        .set(portfolioWriteRow(next, false))
-        .where(eq(portfolioProjectsTable.id, id))
+    () => getDb().update(portfolioProjectsTable).set(portfolioWriteRow(next, includeRelations)).where(
+      and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId))
+    ),
+    () => getDb().update(portfolioProjectsTable).set(portfolioWriteRow(next, false)).where(
+      and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId))
+    )
   );
 
   return next;
 }
 
 export async function reorderPortfolioProjects(
-  orderedIds: string[]
+  orderedIds: string[],
+  tenantId: string
 ): Promise<{ updated: number }> {
   let updated = 0;
   for (let i = 0; i < orderedIds.length; i++) {
@@ -1349,7 +1363,7 @@ export async function reorderPortfolioProjects(
     await getDb()
       .update(portfolioProjectsTable)
       .set({ sortOrder: i + 1 })
-      .where(eq(portfolioProjectsTable.id, id));
+      .where(and(eq(portfolioProjectsTable.id, id), eq(portfolioProjectsTable.tenantId, tenantId)));
     updated++;
   }
   return { updated };

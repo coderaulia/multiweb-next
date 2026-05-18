@@ -7,6 +7,7 @@ import { createMediaAsset, getMediaAssets } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { deleteUploadedMedia, saveUploadedMedia } from '@/services/mediaStorage';
 import { env } from '@/services/env';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 function parseText(value: FormDataEntryValue | null) {
   return typeof value === 'string' ? value.trim() : '';
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await rawFile.arrayBuffer());
     const checksumSha256 = sha256ForBuffer(buffer);
 
-    const existingAssets = await getMediaAssets();
+    const existingAssets = await getMediaAssets(DEFAULT_TENANT_ID);
     const duplicate = existingAssets.find((asset) => asset.checksumSha256 === checksumSha256);
     if (duplicate) {
       return NextResponse.json(
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
         storageKey: stored.storageKey,
         createdAt: nowIso(),
         updatedAt: nowIso()
-      });
+      }, DEFAULT_TENANT_ID);
 
       try {
         await logAdminAuditEvent(request, {

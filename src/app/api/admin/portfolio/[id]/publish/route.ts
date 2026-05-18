@@ -4,6 +4,7 @@ import { assertAdminPermission, logAdminAuditEvent } from '@/features/cms/adminA
 import { captureContentRevision } from '@/features/cms/contentRevisions';
 import { getPortfolioProjectById, setPortfolioProjectStatus } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -15,12 +16,12 @@ export async function POST(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const existing = await getPortfolioProjectById(id);
+  const existing = await getPortfolioProjectById(id, DEFAULT_TENANT_ID);
   if (!existing) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }
 
-  const project = await setPortfolioProjectStatus(id, 'published');
+  const project = await setPortfolioProjectStatus(id, 'published', DEFAULT_TENANT_ID);
   if (!project) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }

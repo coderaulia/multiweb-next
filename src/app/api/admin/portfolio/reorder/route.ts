@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { assertAdminPermission, logAdminAuditEvent } from '@/features/cms/adminAuth';
 import { reorderPortfolioProjects } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 export async function POST(request: Request) {
   const auth = await assertAdminPermission(request, 'content:edit');
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await reorderPortfolioProjects(orderedIds);
+  const result = await reorderPortfolioProjects(orderedIds, DEFAULT_TENANT_ID);
 
   try {
     await logAdminAuditEvent(request, {

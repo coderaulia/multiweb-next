@@ -5,6 +5,7 @@ import { captureContentRevision } from '@/features/cms/contentRevisions';
 import { getSettings, updateSettings } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { validateSiteSettings } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 export async function GET(request: Request) {
   const auth = await assertAdminRequest(request);
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const session = auth;
 
-  const settings = await getSettings();
+  const settings = await getSettings(DEFAULT_TENANT_ID);
   return NextResponse.json({ settings });
 }
 
@@ -27,7 +28,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Invalid settings payload' }, { status: 400 });
   }
 
-  const settings = await updateSettings(payload);
+  const settings = await updateSettings(payload, DEFAULT_TENANT_ID);
 
   try {
     await captureContentRevision({

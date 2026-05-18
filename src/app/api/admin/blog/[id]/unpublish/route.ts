@@ -4,6 +4,7 @@ import { assertAdminPermission, logAdminAuditEvent } from '@/features/cms/adminA
 import { captureContentRevision } from '@/features/cms/contentRevisions';
 import { setPostStatus } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -15,7 +16,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const post = await setPostStatus(id, 'draft');
+  const post = await setPostStatus(id, 'draft', DEFAULT_TENANT_ID);
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }

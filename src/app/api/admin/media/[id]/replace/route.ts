@@ -7,6 +7,7 @@ import { getMediaAssetById, getMediaAssets, updateMediaAsset } from '@/features/
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { saveUploadedMedia } from '@/services/mediaStorage';
 import { env } from '@/services/env';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -30,7 +31,7 @@ export async function POST(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const existing = await getMediaAssetById(id);
+  const existing = await getMediaAssetById(id, DEFAULT_TENANT_ID);
   if (!existing) {
     return NextResponse.json({ error: 'Media asset not found.' }, { status: 404 });
   }
@@ -55,7 +56,7 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   const buffer = Buffer.from(await rawFile.arrayBuffer());
   const checksumSha256 = sha256ForBuffer(buffer);
-  const existingAssets = await getMediaAssets();
+  const existingAssets = await getMediaAssets(DEFAULT_TENANT_ID);
   const duplicate = existingAssets.find((asset) => asset.id !== existing.id && asset.checksumSha256 === checksumSha256);
   if (duplicate) {
     return NextResponse.json(
@@ -94,7 +95,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     checksumSha256,
     storageProvider: stored.storageProvider,
     storageKey: stored.storageKey
-  });
+  }, DEFAULT_TENANT_ID);
 
   if (!mediaAsset) {
     return NextResponse.json({ error: 'Media asset not found.' }, { status: 404 });

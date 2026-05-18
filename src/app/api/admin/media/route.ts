@@ -4,6 +4,7 @@ import { assertAdminPermission, assertAdminRequest, logAdminAuditEvent } from '@
 import { createMediaAsset, getMediaAssets } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { validateMediaAsset } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 export async function GET(request: Request) {
   const auth = await assertAdminRequest(request);
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const session = auth;
 
-  const mediaAssets = await getMediaAssets();
+  const mediaAssets = await getMediaAssets(DEFAULT_TENANT_ID);
   return NextResponse.json({ mediaAssets });
 }
 
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid media asset payload' }, { status: 400 });
   }
 
-  const mediaAsset = await createMediaAsset(payload);
+  const mediaAsset = await createMediaAsset(payload, DEFAULT_TENANT_ID);
 
   try {
     await logAdminAuditEvent(request, {

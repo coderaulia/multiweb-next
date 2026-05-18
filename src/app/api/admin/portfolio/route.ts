@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { assertAdminPermission, assertAdminRequest, logAdminAuditEvent } from '@/features/cms/adminAuth';
 import { createPortfolioProject, queryPortfolioProjects } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import type { PortfolioProject } from '@/features/cms/types';
 
 export async function GET(request: Request) {
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     dateSort,
     page,
     pageSize
-  });
+  }, DEFAULT_TENANT_ID);
 
   return NextResponse.json(payload);
 }
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
   const session = auth.session;
 
   const payload = (await request.json().catch(() => null)) as Partial<PortfolioProject> | null;
-  const project = await createPortfolioProject(payload ?? {});
+  const project = await createPortfolioProject(payload ?? {}, DEFAULT_TENANT_ID);
 
   try {
     await logAdminAuditEvent(request, {

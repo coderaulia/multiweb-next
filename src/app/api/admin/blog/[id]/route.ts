@@ -5,6 +5,7 @@ import { captureContentRevision } from '@/features/cms/contentRevisions';
 import { deleteBlogPost, getBlogPostById, updateBlogPost } from '@/features/cms/contentStore';
 import { revalidateBlogCache } from '@/features/cms/publicCache';
 import { validateBlogPost } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -15,7 +16,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
-  const post = await getBlogPostById(id);
+  const post = await getBlogPostById(id, DEFAULT_TENANT_ID);
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }
@@ -32,7 +33,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
   if (!payload || payload.id !== id) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
   }
-  const post = await updateBlogPost(id, payload);
+  const post = await updateBlogPost(id, payload, DEFAULT_TENANT_ID);
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }
@@ -75,12 +76,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const post = await getBlogPostById(id);
+  const post = await getBlogPostById(id, DEFAULT_TENANT_ID);
   if (!post) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }
 
-  const removed = await deleteBlogPost(id);
+  const removed = await deleteBlogPost(id, DEFAULT_TENANT_ID);
   if (!removed) {
     return NextResponse.json({ error: 'Post not found' }, { status: 404 });
   }

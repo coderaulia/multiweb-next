@@ -4,6 +4,7 @@ import { assertAdminPermission, assertAdminRequest, logAdminAuditEvent } from '@
 import { createCategory, getCategories } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { validateCategory } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 export async function GET(request: Request) {
   const auth = await assertAdminRequest(request);
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const session = auth;
 
-  const categories = await getCategories();
+  const categories = await getCategories(DEFAULT_TENANT_ID);
   return NextResponse.json({ categories });
 }
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid category payload' }, { status: 400 });
   }
 
-  const category = await createCategory(payload);
+  const category = await createCategory(payload, DEFAULT_TENANT_ID);
 
   try {
     await logAdminAuditEvent(request, {

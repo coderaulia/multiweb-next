@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { assertAdminPermission, getAdminSession, logAdminAuditEvent } from '@/features/cms/adminAuth';
 import { createBlogPost, queryBlogPosts } from '@/features/cms/contentStore';
 import { revalidateBlogCache } from '@/features/cms/publicCache';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 import type { BlogPost } from '@/features/cms/types';
 
 export async function GET(request: Request) {
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     dateSort,
     page,
     pageSize
-  });
+  }, DEFAULT_TENANT_ID);
   return NextResponse.json(payload);
 }
 
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
   const session = auth.session;
 
   const payload = (await request.json().catch(() => null)) as Partial<BlogPost> | null;
-  const post = await createBlogPost(payload ?? {});
+  const post = await createBlogPost(payload ?? {}, DEFAULT_TENANT_ID);
 
   try {
     await logAdminAuditEvent(request, {

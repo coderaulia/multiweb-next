@@ -1,6 +1,7 @@
 import { BlogPageView } from '@/components/pages/BlogPageView';
 import { buildMetadata } from '@/features/cms/seo';
 import { getPublishedBlogPosts, getSiteSettings } from '@/features/cms/publicApi';
+import { resolveTenantBySlug } from '@/features/cms/tenantContext';
 
 type BlogListPageProps = {
   params: Promise<{ tenant: string }>;
@@ -11,8 +12,10 @@ type BlogListPageProps = {
   }>;
 };
 
-export async function generateMetadata() {
-  const settings = await getSiteSettings();
+export async function generateMetadata({ params }: BlogListPageProps) {
+  const { tenant: tenantSlug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
+  const settings = await getSiteSettings(tenant?.id);
   return buildMetadata(
     settings,
     {
@@ -29,11 +32,13 @@ export async function generateMetadata() {
   );
 }
 
-export default async function TenantBlogListPage({ searchParams }: BlogListPageProps) {
+export default async function TenantBlogListPage({ params: paramsPromise, searchParams }: BlogListPageProps) {
+  const { tenant: tenantSlug } = await paramsPromise;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const [params, settings, posts] = await Promise.all([
     searchParams,
-    getSiteSettings(),
-    getPublishedBlogPosts()
+    getSiteSettings(tenant?.id),
+    getPublishedBlogPosts(tenant?.id)
   ]);
   const query = params.q ?? '';
   const activeTag = params.tag ?? 'all';

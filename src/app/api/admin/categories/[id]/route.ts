@@ -4,6 +4,7 @@ import { assertAdminPermission, assertAdminRequest, logAdminAuditEvent } from '@
 import { deleteCategory, getCategoryById, updateCategory } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { validateCategory } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -16,7 +17,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const session = auth;
 
   const { id } = await params;
-  const category = await getCategoryById(id);
+  const category = await getCategoryById(id, DEFAULT_TENANT_ID);
   if (!category) {
     return NextResponse.json({ error: 'Category not found' }, { status: 404 });
   }
@@ -35,7 +36,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Invalid category payload' }, { status: 400 });
   }
 
-  const category = await updateCategory(id, payload);
+  const category = await updateCategory(id, payload, DEFAULT_TENANT_ID);
   if (!category) {
     return NextResponse.json({ error: 'Category not found' }, { status: 404 });
   }
@@ -65,12 +66,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const category = await getCategoryById(id);
+  const category = await getCategoryById(id, DEFAULT_TENANT_ID);
   if (!category) {
     return NextResponse.json({ error: 'Category not found' }, { status: 404 });
   }
 
-  const removed = await deleteCategory(id);
+  const removed = await deleteCategory(id, DEFAULT_TENANT_ID);
   if (!removed) {
     return NextResponse.json({ error: 'Category not found' }, { status: 404 });
   }

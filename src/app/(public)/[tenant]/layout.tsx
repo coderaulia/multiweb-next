@@ -57,7 +57,7 @@ export async function generateMetadata({ params }: TenantLayoutProps): Promise<M
   const tenant = await resolveTenant(tenantSlug);
   if (!tenant) return { title: 'Not found' };
 
-  const settings = await getSiteSettings();
+  const settings = await getSiteSettings(tenant.id);
   const icon = settings.branding.siteIcon || settings.branding.headerLogo || undefined;
 
   return {
@@ -80,7 +80,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
   if (!tenant) notFound();
 
   const nonce = (await headers()).get('x-nonce') || undefined;
-  const [settings, pages] = await Promise.all([getSiteSettings(), getPublishedPages()]);
+  const [settings, pages] = await Promise.all([getSiteSettings(tenant.id), getPublishedPages(tenant.id)]);
 
   const pageNavMap = new Map(
     pages.map((page) => [

@@ -11,6 +11,7 @@ import {
   getPublishedPages,
   getSiteSettings
 } from '@/features/cms/publicApi';
+import { resolveTenantBySlug } from '@/features/cms/tenantContext';
 
 type TenantDynamicPageProps = {
   params: Promise<{ tenant: string; slug: string }>;
@@ -24,25 +25,27 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: TenantDynamicPageProps) {
-  const { slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
   if (isReservedPublicSlug(slug)) return {};
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
   const [settings, page] = await Promise.all([
-    getSiteSettings(),
-    isPreview ? getPreviewPageBySlug(slug) : getPublishedPageBySlug(slug)
+    getSiteSettings(tenant?.id),
+    isPreview ? getPreviewPageBySlug(slug, tenant?.id) : getPublishedPageBySlug(slug, tenant?.id)
   ]);
   if (!page) return {};
   return buildMetadata(settings, page.seo, page.title, page.seo.metaDescription);
 }
 
 export default async function TenantDynamicPage({ params }: TenantDynamicPageProps) {
-  const { tenant, slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
   if (isReservedPublicSlug(slug)) notFound();
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
-  const page = await (isPreview ? getPreviewPageBySlug(slug) : getPublishedPageBySlug(slug));
+  const page = await (isPreview ? getPreviewPageBySlug(slug, tenant?.id) : getPublishedPageBySlug(slug, tenant?.id));
   if (!page) notFound();
 
-  const previewBanner = isPreview ? <PreviewModeBanner path={`/${tenant}/${slug}`} /> : null;
+  const previewBanner = isPreview ? <PreviewModeBanner path={`/${tenantSlug}/${slug}`} /> : null;
 
   return (
     <>

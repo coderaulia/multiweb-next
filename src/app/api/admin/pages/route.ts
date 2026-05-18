@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { assertAdminRequest } from '@/features/cms/adminAuth';
 import { getPages } from '@/features/cms/contentStore';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 export async function GET(request: Request) {
   const auth = await assertAdminRequest(request);
@@ -9,7 +10,7 @@ export async function GET(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const session = auth;
 
-  const pages = await getPages();
+  const pages = await getPages(DEFAULT_TENANT_ID);
   const ordered = [
     'home',
     'about',

@@ -12,6 +12,7 @@ import {
   getPublishedBlogPosts,
   getSiteSettings
 } from '@/features/cms/publicApi';
+import { resolveTenantBySlug } from '@/features/cms/tenantContext';
 
 type BlogDetailPageProps = {
   params: Promise<{ tenant: string; slug: string }>;
@@ -23,11 +24,12 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: BlogDetailPageProps) {
-  const { slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
   const [settings, post] = await Promise.all([
-    getSiteSettings(),
-    isPreview ? getPreviewBlogPostBySlug(slug) : getPublishedBlogPostBySlug(slug)
+    getSiteSettings(tenant?.id),
+    isPreview ? getPreviewBlogPostBySlug(slug, tenant?.id) : getPublishedBlogPostBySlug(slug, tenant?.id)
   ]);
   if (!post) return { title: 'Not found' };
   return buildMetadata(
@@ -39,12 +41,13 @@ export async function generateMetadata({ params }: BlogDetailPageProps) {
 }
 
 export default async function TenantBlogDetailPage({ params }: BlogDetailPageProps) {
-  const { tenant, slug } = await params;
+  const { tenant: tenantSlug, slug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const isPreview = (await draftMode()).isEnabled;
   const [settings, post, allPosts] = await Promise.all([
-    getSiteSettings(),
-    isPreview ? getPreviewBlogPostBySlug(slug) : getPublishedBlogPostBySlug(slug),
-    isPreview ? getPreviewBlogPosts() : getPublishedBlogPosts()
+    getSiteSettings(tenant?.id),
+    isPreview ? getPreviewBlogPostBySlug(slug, tenant?.id) : getPublishedBlogPostBySlug(slug, tenant?.id),
+    isPreview ? getPreviewBlogPosts(tenant?.id) : getPublishedBlogPosts(tenant?.id)
   ]);
   if (!post) notFound();
 
@@ -78,7 +81,7 @@ export default async function TenantBlogDetailPage({ params }: BlogDetailPagePro
 
   return (
     <>
-      {isPreview ? <PreviewModeBanner path={`/${tenant}/blog/${slug}`} /> : null}
+      {isPreview ? <PreviewModeBanner path={`/${tenantSlug}/blog/${slug}`} /> : null}
       <SeoJsonLd data={jsonLd} />
       <BlogPostView post={post} related={related} />
     </>

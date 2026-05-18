@@ -1,6 +1,7 @@
 import { PortfolioPageView } from '@/components/pages/PortfolioPageView';
 import { buildMetadata } from '@/features/cms/seo';
 import { getPublishedPortfolioProjects, getSiteSettings } from '@/features/cms/publicApi';
+import { resolveTenantBySlug } from '@/features/cms/tenantContext';
 
 type PortfolioListPageProps = {
   params: Promise<{ tenant: string }>;
@@ -11,8 +12,10 @@ type PortfolioListPageProps = {
   }>;
 };
 
-export async function generateMetadata() {
-  const settings = await getSiteSettings();
+export async function generateMetadata({ params }: PortfolioListPageProps) {
+  const { tenant: tenantSlug } = await params;
+  const tenant = await resolveTenantBySlug(tenantSlug);
+  const settings = await getSiteSettings(tenant?.id);
   return buildMetadata(
     settings,
     {
@@ -29,11 +32,13 @@ export async function generateMetadata() {
   );
 }
 
-export default async function TenantPortfolioListPage({ searchParams }: PortfolioListPageProps) {
+export default async function TenantPortfolioListPage({ params: paramsPromise, searchParams }: PortfolioListPageProps) {
+  const { tenant: tenantSlug } = await paramsPromise;
+  const tenant = await resolveTenantBySlug(tenantSlug);
   const [params, settings, projects] = await Promise.all([
     searchParams,
-    getSiteSettings(),
-    getPublishedPortfolioProjects()
+    getSiteSettings(tenant?.id),
+    getPublishedPortfolioProjects(tenant?.id)
   ]);
 
   const query = params.q ?? '';

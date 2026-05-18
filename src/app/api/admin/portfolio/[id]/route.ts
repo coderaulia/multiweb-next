@@ -9,6 +9,7 @@ import {
 } from '@/features/cms/contentStore';
 import { revalidatePublicCmsCache } from '@/features/cms/publicCache';
 import { validatePortfolioProject } from '@/features/cms/validators';
+import { DEFAULT_TENANT_ID } from '@/db/tenantConstants';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -21,7 +22,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   const session = auth;
 
   const { id } = await params;
-  const project = await getPortfolioProjectById(id);
+  const project = await getPortfolioProjectById(id, DEFAULT_TENANT_ID);
   if (!project) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }
@@ -39,7 +40,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: 'Invalid portfolio payload' }, { status: 400 });
   }
 
-  const project = await updatePortfolioProject(id, payload);
+  const project = await updatePortfolioProject(id, payload, DEFAULT_TENANT_ID);
   if (!project) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }
@@ -82,12 +83,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const session = auth.session;
 
   const { id } = await params;
-  const project = await getPortfolioProjectById(id);
+  const project = await getPortfolioProjectById(id, DEFAULT_TENANT_ID);
   if (!project) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }
 
-  const removed = await deletePortfolioProject(id);
+  const removed = await deletePortfolioProject(id, DEFAULT_TENANT_ID);
   if (!removed) {
     return NextResponse.json({ error: 'Portfolio project not found' }, { status: 404 });
   }
